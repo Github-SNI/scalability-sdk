@@ -319,6 +319,7 @@
 
     var payload = cleanObject({
       funnel_id: funnelId,
+      funnel_step_id: cfg.stepId || undefined,
       session_id: session.sessionId,
       landing_page: window.location.href,
       referrer: document.referrer || undefined,
@@ -363,10 +364,27 @@
 
         if (cfg.onVisitRegistered) cfg.onVisitRegistered(result.data);
 
-        // If visit response includes phone, dispatch phone-loaded
-        if (result.data.phone_number) {
+        // If visit response includes phone (backend assigned it during visit registration),
+        // populate state and display immediately — no separate /api/calls/phone/assign needed
+        var visitPhone = result.data.phone;
+        if (visitPhone && visitPhone.phone_number) {
+          _phoneState.phoneNumber = visitPhone.phone_number;
+          _phoneState.formattedPhone = visitPhone.formatted_phone || formatPhoneNumber(visitPhone.phone_number);
+          _phoneState.isFallback = visitPhone.is_fallback || false;
+          _phoneState.fetched = true;
+          cachePhone({
+            phoneNumber: _phoneState.phoneNumber,
+            formattedPhone: _phoneState.formattedPhone,
+            expiresAt: visitPhone.expires_at,
+            isFallback: _phoneState.isFallback
+          });
+          try { localStorage.setItem('show_phone_number', 'true'); } catch(e) {}
+          onReady(function() { setupPhoneDisplay(); });
           window.dispatchEvent(new CustomEvent('phone-loaded', {
-            detail: { phone_number: result.data.phone_number }
+            detail: { phone_number: visitPhone.phone_number }
+          }));
+          window.dispatchEvent(new CustomEvent('scale:phone-ready', {
+            detail: { phoneNumber: _phoneState.phoneNumber, formattedPhone: _phoneState.formattedPhone }
           }));
         }
       }
@@ -716,7 +734,7 @@
 
     return fetchWithTimeout(apiBase + '/api/funnels/public/' + slug + '/business-hours', {
       method: 'GET'
-    }, 5000)
+    }, 2000)
     .then(function(res) { return res.json(); })
     .then(function(result) {
       if (result.success) {
@@ -739,6 +757,11 @@
     var triggered = false;
 
     function doFetchPhone() {
+      // If phone already loaded from visit response, just display it
+      if (_phoneState.fetched) {
+        onReady(function() { setupPhoneDisplay(); });
+        return;
+      }
       // Check business hours before fetching phone
       checkBusinessHours().then(function(bh) {
         if (!bh.is_open && bh.has_schedule) {
@@ -766,26 +789,26 @@
     function triggerFetch() {
       if (triggered) return;
       triggered = true;
-      setTimeout(doFetchPhone, 500);
+      doFetchPhone();
     }
 
-    // Wait for LCP then fetch
+    // Wait for LCP then fetch — no extra delay so phone appears as soon as possible
     if (window.PerformanceObserver) {
       try {
         var obs = new PerformanceObserver(function(list) {
           if (list.getEntries().length > 0) { obs.disconnect(); triggerFetch(); }
         });
         obs.observe({ entryTypes: ['largest-contentful-paint'] });
-        setTimeout(function() { if (!triggered) triggerFetch(); }, 4000);
-      } catch (e) { setTimeout(triggerFetch, 3000); }
+        setTimeout(function() { if (!triggered) triggerFetch(); }, 1500);
+      } catch (e) { setTimeout(triggerFetch, 1000); }
     } else {
-      window.addEventListener('load', function() { setTimeout(triggerFetch, 1500); });
+      window.addEventListener('load', function() { triggerFetch(); });
     }
 
     // Re-fetch phone after visit registration if no phone yet
     window.addEventListener('visit-registered', function(e) {
       var visitData = e.detail || {};
-      if (!_phoneState.fetched && !visitData.phone_number) {
+      if (!_phoneState.fetched && !visitData.phone) {
         doFetchPhone();
       }
     });
@@ -856,6 +879,59 @@
     return '';
   }
 
+  // ==================== Fetch Interceptor ====================
+  // Automatically enriches outgoing API calls with session/tracking data:
+  //   POST /api/leads          → session_id, funnel_step_id, trusted_form_url (if trustedForm enabled)
+  //   POST /api/contacts/public → recaptcha_token (if recaptchaKey configured)
+  function initFetchInterceptor() {
+    var _fetch = window.fetch;
+    window.fetch = function(url, options) {
+      var urlStr = typeof url === 'string' ? url : (url && url.url) || '';
+      var method = options && (options.method || '').toUpperCase();
+
+      // Enrich lead submissions
+      if (urlStr.indexOf('/api/leads') !== -1 && method === 'POST') {
+        try {
+          var body = JSON.parse(options.body);
+          var sd = getSessionData();
+          // session_id
+          if (sd.session_id && !body.session_id) body.session_id = sd.session_id;
+          // visit_id
+          if (sd.visit_id && !body.visit_id) body.visit_id = sd.visit_id;
+          // funnel_step_id
+          var stepId = cfg.stepId;
+          if (stepId && !body.funnel_step_id) body.funnel_step_id = stepId;
+          // trusted_form_url
+          if (featureEnabled('trustedForm') && !body.trusted_form_url) {
+            var certUrl = getTrustedFormCertUrl();
+            if (certUrl) body.trusted_form_url = certUrl;
+          }
+          options = Object.assign({}, options, { body: JSON.stringify(body) });
+        } catch(e) {}
+      }
+
+      // Enrich contact form submissions with reCAPTCHA token
+      if (urlStr.indexOf('/api/contacts/public') !== -1 && method === 'POST' && cfg.recaptchaKey) {
+        return new Promise(function(resolve) {
+          grecaptcha.ready(function() {
+            grecaptcha.execute(cfg.recaptchaKey, { action: 'contact' }).then(function(token) {
+              try {
+                var body = JSON.parse(options.body);
+                body.recaptcha_token = token;
+                options = Object.assign({}, options, { body: JSON.stringify(body) });
+              } catch(e) {}
+              resolve(_fetch.call(window, url, options));
+            }).catch(function() {
+              resolve(_fetch.call(window, url, options));
+            });
+          });
+        });
+      }
+
+      return _fetch.apply(window, arguments);
+    };
+  }
+
   // ==================== Initialization ====================
   function init() {
     log('Initializing SDK v2', {
@@ -882,6 +958,7 @@
     });
 
     // Initialize core modules
+    initFetchInterceptor();
     initVisitRegistration();
     initPhoneFetcher();
     initTrustedForm();

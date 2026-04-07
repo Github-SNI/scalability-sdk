@@ -6,7 +6,7 @@ Distribución oficial del SDK de Scale. Descarga la última versión desde [Rele
 
 | Archivo | Descripción |
 |---|---|
-| `sdk/scale-sdk-v2.js` | SDK principal — visits, DNI phone, TrustedForm |
+| `sdk/scale-sdk-v2.js` | SDK principal — visits, DNI phone, TrustedForm, Fetch Interceptor |
 | `sdk/scale-analytics.js` | Módulo de analytics — GTM lazy-load + event tracking |
 | `docs/Scale-SDK-API-Docs-EN.docx` | Documentación técnica |
 
@@ -19,12 +19,12 @@ https://github.com/Github-SNI/scale-sdk/releases/latest
 
 ### Versión específica
 ```
-https://github.com/Github-SNI/scale-sdk/releases/download/v2.0.0/Scale-SDK-Pack-v2.0.0.zip
+https://github.com/Github-SNI/scale-sdk/releases/download/v2.1.0/Scale-SDK-Pack-v2.1.0.zip
 ```
 
 ### Archivo individual
 ```
-https://github.com/Github-SNI/scale-sdk/releases/download/v2.0.0/scale-sdk-v2.js
+https://github.com/Github-SNI/scale-sdk/releases/download/v2.1.0/scale-sdk-v2.js
 ```
 
 ## Publicar una nueva versión
@@ -45,4 +45,5 @@ GitHub Actions empaqueta los archivos y crea el release con el ZIP adjunto.
 
 | Versión | Fecha | Notas |
 |---|---|---|
+| v2.1.0 | 2026-04-07 | Phone desde visit response, Fetch Interceptor, optimización de timings |
 | v2.0.0 | 2026-03-19 | Versión inicial |
