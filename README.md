@@ -44,6 +44,5 @@ GitHub Actions packages the files and creates the release with the ZIP attached.
 ## Changelog
 
 | Version | Date | Notes |
-|---|---|---|
-| v2.1.0 | 2026-04-07 | Phone from visit response, Fetch Interceptor, timing optimizations |
-| v2.0.0 | 2026-03-19 | Initial release |
+|---------|---|---|
+| v2.0.1  | 2026-04-07 | Phone from visit response, Fetch Interceptor, timing optimizations |
