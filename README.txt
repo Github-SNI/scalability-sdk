@@ -6,9 +6,9 @@ CONTENTS:
     scale-analytics.js   →  Analytics module (GTM lazy-load + event tracking)
     scale-sdk-v2.js      →  Core SDK (visits, DNI phone, TrustedForm, Fetch Interceptor)
   docs/
-    Scale-SDK-API-Docs-EN.docx  →  Technical documentation in English
+    Scale-SDK-API-Docs-EN.docx  →  Technical documentation
 
-HOSTING DE LOS SCRIPTS / SCRIPT HOSTING:
+SCRIPT HOSTING:
   Upload the /sdk/ files to your server or CDN and reference
   them in your WordPress functions.php.
 

@@ -28,14 +28,14 @@ jobs:
           body: |
             ## Scale SDK ${{ github.ref_name }}
 
-            ### Archivos incluidos
-            | Archivo | Descripción |
+            ### Files included
+            | File | Description |
             |---|---|
-            | `Scale-SDK-Pack-${{ github.ref_name }}.zip` | Pack completo (SDK + docs) |
-            | `scale-sdk-v2.js` | SDK principal — visits, DNI phone, TrustedForm |
-            | `scale-analytics.js` | Módulo de analytics — GTM lazy-load + event tracking |
+            | `Scale-SDK-Pack-${{ github.ref_name }}.zip` | Full pack (SDK + docs) |
+            | `scale-sdk-v2.js` | Core SDK — visits, DNI phone, TrustedForm, Fetch Interceptor |
+            | `scale-analytics.js` | Analytics module — GTM lazy-load + event tracking |
 
-            ### Descarga rápida
+            ### Quick download
             ```
             https://github.com/Github-SNI/scale-sdk/releases/download/${{ github.ref_name }}/Scale-SDK-Pack-${{ github.ref_name }}.zip
             ```

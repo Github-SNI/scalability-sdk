@@ -1,49 +1,49 @@
 # Scale SDK
 
-Distribución oficial del SDK de Scale. Descarga la última versión desde [Releases](https://github.com/Github-SNI/scale-sdk/releases/latest).
+Official Scale SDK distribution. Download the latest version from [Releases](https://github.com/Github-SNI/scale-sdk/releases/latest).
 
-## Archivos
+## Files
 
-| Archivo | Descripción |
+| File | Description |
 |---|---|
-| `sdk/scale-sdk-v2.js` | SDK principal — visits, DNI phone, TrustedForm, Fetch Interceptor |
-| `sdk/scale-analytics.js` | Módulo de analytics — GTM lazy-load + event tracking |
-| `docs/Scale-SDK-API-Docs-EN.docx` | Documentación técnica |
+| `sdk/scale-sdk-v2.js` | Core SDK — visits, DNI phone, TrustedForm, Fetch Interceptor |
+| `sdk/scale-analytics.js` | Analytics module — GTM lazy-load + event tracking |
+| `docs/Scale-SDK-API-Docs-EN.docx` | Technical documentation |
 
-## Descarga
+## Download
 
-### Última versión (siempre actualizada)
+### Latest release (always up to date)
 ```
 https://github.com/Github-SNI/scale-sdk/releases/latest
 ```
 
-### Versión específica
+### Specific version
 ```
 https://github.com/Github-SNI/scale-sdk/releases/download/v2.1.0/Scale-SDK-Pack-v2.1.0.zip
 ```
 
-### Archivo individual
+### Individual file
 ```
 https://github.com/Github-SNI/scale-sdk/releases/download/v2.1.0/scale-sdk-v2.js
 ```
 
-## Publicar una nueva versión
+## Publishing a new release
 
 ```bash
-# 1. Hacer los cambios en sdk/
+# 1. Make changes to sdk/
 git add .
 git commit -m "feat: update SDK to vX.Y.Z"
 
-# 2. Crear el tag — esto dispara el release automáticamente
+# 2. Create the tag — this triggers the release automatically
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-GitHub Actions empaqueta los archivos y crea el release con el ZIP adjunto.
+GitHub Actions packages the files and creates the release with the ZIP attached.
 
-## Versiones
+## Changelog
 
-| Versión | Fecha | Notas |
+| Version | Date | Notes |
 |---|---|---|
-| v2.1.0 | 2026-04-07 | Phone desde visit response, Fetch Interceptor, optimización de timings |
-| v2.0.0 | 2026-03-19 | Versión inicial |
+| v2.1.0 | 2026-04-07 | Phone from visit response, Fetch Interceptor, timing optimizations |
+| v2.0.0 | 2026-03-19 | Initial release |
