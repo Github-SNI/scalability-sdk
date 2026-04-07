@@ -1,0 +1,45 @@
+name: Publish SDK Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build SDK ZIP
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          mkdir -p dist
+          zip -r "dist/Scale-SDK-Pack-${VERSION}.zip" sdk/ docs/ README.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Scale SDK ${{ github.ref_name }}"
+          body: |
+            ## Scale SDK ${{ github.ref_name }}
+
+            ### Archivos incluidos
+            | Archivo | Descripción |
+            |---|---|
+            | `Scale-SDK-Pack-${{ github.ref_name }}.zip` | Pack completo (SDK + docs) |
+            | `scale-sdk-v2.js` | SDK principal — visits, DNI phone, TrustedForm |
+            | `scale-analytics.js` | Módulo de analytics — GTM lazy-load + event tracking |
+
+            ### Descarga rápida
+            ```
+            https://github.com/Github-SNI/scale-sdk/releases/download/${{ github.ref_name }}/Scale-SDK-Pack-${{ github.ref_name }}.zip
+            ```
+          files: |
+            dist/Scale-SDK-Pack-${{ github.ref_name }}.zip
+            sdk/scale-sdk-v2.js
+            sdk/scale-analytics.js
