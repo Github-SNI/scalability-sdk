@@ -1,4 +1,4 @@
-Scale SDK Pack — v2.0.1
+Scalability SDK — v2.0.1
 =======================
 
 CONTENTS:

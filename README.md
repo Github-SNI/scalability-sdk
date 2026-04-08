@@ -19,7 +19,7 @@ https://github.com/Github-SNI/scalability-sdk/releases/latest
 
 ### Specific version
 ```
-https://github.com/Github-SNI/scalability-sdk/releases/download/v2.1.0/Scale-SDK-Pack-v2.1.0.zip
+https://github.com/Github-SNI/scalability-sdk/releases/download/v2.1.0/Scalability-SDK-v2.1.0.zip
 ```
 
 ### Individual file
