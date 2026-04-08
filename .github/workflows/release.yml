@@ -37,7 +37,7 @@ jobs:
 
             ### Quick download
             ```
-            https://github.com/Github-SNI/scale-sdk/releases/download/${{ github.ref_name }}/Scale-SDK-Pack-${{ github.ref_name }}.zip
+            https://github.com/Github-SNI/scalability-sdk/releases/download/${{ github.ref_name }}/Scale-SDK-Pack-${{ github.ref_name }}.zip
             ```
           files: |
             dist/Scale-SDK-Pack-${{ github.ref_name }}.zip

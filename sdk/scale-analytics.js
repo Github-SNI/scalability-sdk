@@ -2,7 +2,7 @@
 // Centralized analytics: dataLayer, GTM loading, GA4 events, auto-tracking, performance monitoring
 // Usage: Set window.SCALE_CONFIG before loading, or use legacy window.GTM_ID
 //
-// <script>window.SCALE_CONFIG = { gtmId: 'PCL46MDV', ga4MeasurementId: 'G-XXXXX' };</script>
+// <script>window.SCALE_CONFIG = { gtmId: 'XXXXXXXX', ga4MeasurementId: 'G-XXXXX' };</script>
 // <script src="/sdk/scale-analytics.js"></script>
 
 (function() {

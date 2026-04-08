@@ -1,6 +1,6 @@
 # Scale SDK
 
-Official Scale SDK distribution. Download the latest version from [Releases](https://github.com/Github-SNI/scale-sdk/releases/latest).
+Official Scale SDK distribution. Download the latest version from [Releases](https://github.com/Github-SNI/scalability-sdk/releases/latest).
 
 ## Files
 
@@ -14,17 +14,17 @@ Official Scale SDK distribution. Download the latest version from [Releases](htt
 
 ### Latest release (always up to date)
 ```
-https://github.com/Github-SNI/scale-sdk/releases/latest
+https://github.com/Github-SNI/scalability-sdk/releases/latest
 ```
 
 ### Specific version
 ```
-https://github.com/Github-SNI/scale-sdk/releases/download/v2.1.0/Scale-SDK-Pack-v2.1.0.zip
+https://github.com/Github-SNI/scalability-sdk/releases/download/v2.1.0/Scale-SDK-Pack-v2.1.0.zip
 ```
 
 ### Individual file
 ```
-https://github.com/Github-SNI/scale-sdk/releases/download/v2.1.0/scale-sdk-v2.js
+https://github.com/Github-SNI/scalability-sdk/releases/download/v2.1.0/scale-sdk-v2.js
 ```
 
 ## Publishing a new release
