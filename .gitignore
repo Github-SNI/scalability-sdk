@@ -3,3 +3,6 @@ dist/
 .idea/
 node_modules/
 *.bak
+
+# Local-only backend implementation spec (shared outside the repo)
+BACKEND.md
