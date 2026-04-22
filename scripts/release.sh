@@ -116,25 +116,38 @@ git push origin main "$TAG"
 # forces the edges to refetch from GitHub so clients see the new release in
 # seconds instead of hours. Exact-version URLs (@vX.Y.Z) don't need purging —
 # they're immutable and always serve the right bytes on first request.
+#
+# Empirically: jsDelivr sometimes needs two purge passes for floating tags to
+# pick up a new version (the first pass clears a stale resolution, the second
+# pass triggers a fresh fetch). We do both with a short gap between.
 echo ""
 echo "==> Purging jsDelivr cache for floating tags..."
 MAJOR_MINOR="$(echo "$TAG" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/v\1/')"
 MAJOR="$(echo "$TAG" | sed -E 's/^v([0-9]+)\..*/v\1/')"
 FLOAT_TAGS=("$MAJOR_MINOR" "$MAJOR" "latest")
 FILES=(scale-sdk-v2.js scale-sdk-v2.min.js scale-analytics.js scale-analytics.min.js)
-PURGED=0
-for t in "${FLOAT_TAGS[@]}"; do
-  for f in "${FILES[@]}"; do
-    url="https://purge.jsdelivr.net/gh/Github-SNI/scalability-sdk@${t}/sdk/${f}"
-    status=$(curl -s -o /dev/null -w "%{http_code}" "$url" || echo "000")
-    if [[ "$status" == "200" ]]; then
-      PURGED=$((PURGED + 1))
-    else
-      printf "  WARN: purge failed for @%s/%s (HTTP %s)\n" "$t" "$f" "$status" >&2
-    fi
+TOTAL=$((${#FLOAT_TAGS[@]} * ${#FILES[@]}))
+
+purge_pass() {
+  local pass_num="$1"
+  local ok=0
+  for t in "${FLOAT_TAGS[@]}"; do
+    for f in "${FILES[@]}"; do
+      url="https://purge.jsdelivr.net/gh/Github-SNI/scalability-sdk@${t}/sdk/${f}"
+      status=$(curl -s -o /dev/null -w "%{http_code}" "$url" || echo "000")
+      if [[ "$status" == "200" ]]; then
+        ok=$((ok + 1))
+      else
+        printf "  WARN: purge pass-%s failed for @%s/%s (HTTP %s)\n" "$pass_num" "$t" "$f" "$status" >&2
+      fi
+    done
   done
-done
-echo "  purged ${PURGED}/$((${#FLOAT_TAGS[@]} * ${#FILES[@]})) URLs"
+  echo "  pass ${pass_num}: purged ${ok}/${TOTAL} URLs"
+}
+
+purge_pass 1
+sleep 5
+purge_pass 2
 
 echo ""
 echo "Release ${TAG} pushed. GitHub Actions will publish the release in ~30-60s."
