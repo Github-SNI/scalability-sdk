@@ -25,10 +25,11 @@ jobs:
 
       - name: Fail if committed .min.js is stale
         run: |
-          if ! git diff --quiet sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js; then
+          TARGETS="sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js sdk/scale-bootstrap.min.js"
+          if ! git diff --quiet $TARGETS; then
             echo "::error::sdk/*.min.js is out of date. Run 'npm run build' locally, commit, and push."
-            git --no-pager diff --stat sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js
-            git --no-pager diff sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js | head -80
+            git --no-pager diff --stat $TARGETS
+            git --no-pager diff $TARGETS | head -80
             exit 1
           fi
           echo "Minified files in sync with source."

@@ -6,8 +6,10 @@ Official Scale SDK distribution. Reference it directly from the CDN (recommended
 
 | File | Description |
 |---|---|
-| `sdk/scale-sdk-v2.js` | Core SDK — visits, DNI phone, TrustedForm, Fetch Interceptor |
+| `sdk/scale-sdk-v2.js` | Core SDK — visits, DNI phone, TrustedForm, Fetch Interceptor, `healthCheck()` |
 | `sdk/scale-analytics.js` | Analytics module — GTM lazy-load + event tracking |
+| `sdk/scale-bootstrap.js` | One-tag loader — fetches config from backend, boots the SDK |
+| `ONBOARDING.md` | Client integration guide — backend setup, endpoints, verification |
 | `docs/Scale-SDK-API-Docs-EN.docx` | Technical documentation |
 
 ## Use via CDN (recommended)
@@ -174,13 +176,19 @@ cd scalability-sdk
 npm install   # installs terser + wires up the pre-commit hook
 ```
 
-`npm install` runs a `prepare` step that points `core.hooksPath` at `scripts/hooks`. The pre-commit hook rebuilds `sdk/*.min.js` whenever you stage changes to `sdk/scale-sdk-v2.js` or `sdk/scale-analytics.js` and blocks the commit if the minified output drifts from the source. Bypass with `git commit --no-verify` — CI will still reject the PR.
+`npm install` runs a `prepare` step that points `core.hooksPath` at `scripts/hooks`. The pre-commit hook rebuilds `sdk/*.min.js` whenever you stage changes to any `sdk/*.js` source file and blocks the commit if the minified output drifts. Bypass with `git commit --no-verify` — CI will still reject the PR.
 
 CI (`.github/workflows/ci.yml`) runs on every PR and push to `main`: it re-runs `npm run build` and fails if the committed `.min.js` doesn't match what terser produces from the source. This keeps the CDN and the release artifacts in sync without trusting individual developer setups.
+
+## Integration guide
+
+See [ONBOARDING.md](ONBOARDING.md) for the full client onboarding flow: backend records needed per tenant, API endpoints, the two install patterns (static config vs. one-tag bootstrap), `ScaleSDK.healthCheck()` usage, verification steps, and a rollout checklist.
 
 ## Changelog
 
 | Version | Date | Notes |
 |---------|---|---|
+| v2.2.0  | 2026-04-22 | New `scale-bootstrap.js` one-tag loader (fetches `/api/sdk/tenant-bootstrap`), new `ScaleSDK.healthCheck()` public API, `ONBOARDING.md` integration guide |
+| v2.1.1  | 2026-04-22 | First release with minified bundles + SRI; automated release flow |
 | v2.1.0  | 2026-04-22 | Remote SDK config (`/api/sdk/config`), `phone_swap` driven by remote config, new `scaleTrack()` public API, TrustedForm snippet updated to ActiveProspect's current recommendation (noscript pixel + `use_tagged_consent`) |
 | v2.0.1  | 2026-04-07 | Phone from visit response, Fetch Interceptor, timing optimizations |

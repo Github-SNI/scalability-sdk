@@ -4,9 +4,10 @@
   "private": true,
   "description": "Scale Digital SDK — distribution repo (core + analytics, vanilla JS, CDN-shipped).",
   "scripts": {
-    "build": "npm run build:core && npm run build:analytics",
+    "build": "npm run build:core && npm run build:analytics && npm run build:bootstrap",
     "build:core": "terser sdk/scale-sdk-v2.js --compress --mangle --comments false -o sdk/scale-sdk-v2.min.js",
     "build:analytics": "terser sdk/scale-analytics.js --compress --mangle --comments false -o sdk/scale-analytics.min.js",
+    "build:bootstrap": "terser sdk/scale-bootstrap.js --compress --mangle --comments false -o sdk/scale-bootstrap.min.js",
     "sri": "bash scripts/compute-sri.sh",
     "release": "bash scripts/release.sh",
     "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git config core.hooksPath scripts/hooks || true"

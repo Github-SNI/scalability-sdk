@@ -1236,7 +1236,47 @@
     reloadRemoteConfig: loadRemoteConfig,
 
     // Track a custom event → POST /api/events
-    track: scaleTrack
+    track: scaleTrack,
+
+    // Verify the SDK's configuration and backend reachability without
+    // producing side-effects (no visits written, no events fired).
+    // Returns a Promise resolving to { ok, checks: [{name, ok, detail}] }.
+    // Safe to call from the browser console during client onboarding.
+    healthCheck: function() {
+      var checks = [];
+      var push = function(name, ok, detail) { checks.push({ name: name, ok: ok, detail: detail }); };
+
+      push('config.funnelId',   !!cfg.funnelId,   cfg.funnelId || 'missing');
+      push('config.funnelSlug', !!cfg.funnelSlug, cfg.funnelSlug || 'missing');
+      push('config.apiBaseUrl', !!cfg.apiBaseUrl, cfg.apiBaseUrl || 'missing');
+      push('config.tenantKey',  !!tenantKey,      tenantKey || 'missing (remote config disabled)');
+
+      var pending = [];
+
+      if (cfg.apiBaseUrl && tenantKey) {
+        pending.push(
+          fetchWithTimeout(cfg.apiBaseUrl + '/api/sdk/config?tenant=' + encodeURIComponent(tenantKey), { method: 'GET' }, 5000)
+            .then(function(r) { push('GET /api/sdk/config', r.ok, 'HTTP ' + r.status); })
+            .catch(function(e) { push('GET /api/sdk/config', false, String(e && e.message || e)); })
+        );
+      }
+
+      if (cfg.apiBaseUrl && cfg.funnelSlug) {
+        pending.push(
+          fetchWithTimeout(cfg.apiBaseUrl + '/api/funnels/public/' + encodeURIComponent(cfg.funnelSlug) + '/business-hours', { method: 'GET' }, 5000)
+            .then(function(r) { push('GET /business-hours', r.ok, 'HTTP ' + r.status); })
+            .catch(function(e) { push('GET /business-hours', false, String(e && e.message || e)); })
+        );
+      }
+
+      return Promise.all(pending).then(function() {
+        var ok = checks.every(function(c) { return c.ok; });
+        var result = { ok: ok, checks: checks };
+        if (console && console.table) console.table(checks);
+        if (console && console.log) console.log('[ScaleSDK] healthCheck:', ok ? 'OK' : 'FAILED');
+        return result;
+      });
+    }
   };
 
   // Also expose scaleTrack as a top-level alias for convenience.

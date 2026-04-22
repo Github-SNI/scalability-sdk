@@ -38,6 +38,8 @@ jobs:
             echo "sdk_min=sha384-$(sri sdk/scale-sdk-v2.min.js)"
             echo "ana=sha384-$(sri sdk/scale-analytics.js)"
             echo "ana_min=sha384-$(sri sdk/scale-analytics.min.js)"
+            echo "bs=sha384-$(sri sdk/scale-bootstrap.js)"
+            echo "bs_min=sha384-$(sri sdk/scale-bootstrap.min.js)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build release ZIP
@@ -49,7 +51,10 @@ jobs:
             sdk/scale-sdk-v2.min.js \
             sdk/scale-analytics.js \
             sdk/scale-analytics.min.js \
+            sdk/scale-bootstrap.js \
+            sdk/scale-bootstrap.min.js \
             README.md \
+            ONBOARDING.md \
             docs/Scale-SDK-API-Docs-EN.docx
 
       - name: Create GitHub Release
@@ -68,6 +73,8 @@ jobs:
             | `scale-sdk-v2.min.js` | Core SDK — minified |
             | `scale-analytics.js` | Analytics module — raw |
             | `scale-analytics.min.js` | Analytics module — minified |
+            | `scale-bootstrap.js` | One-tag loader — raw |
+            | `scale-bootstrap.min.js` | One-tag loader — minified |
 
             ### Subresource Integrity (SRI)
 
@@ -77,6 +84,8 @@ jobs:
             | `scale-sdk-v2.min.js` | `${{ steps.sri.outputs.sdk_min }}` |
             | `scale-analytics.js` | `${{ steps.sri.outputs.ana }}` |
             | `scale-analytics.min.js` | `${{ steps.sri.outputs.ana_min }}` |
+            | `scale-bootstrap.js` | `${{ steps.sri.outputs.bs }}` |
+            | `scale-bootstrap.min.js` | `${{ steps.sri.outputs.bs_min }}` |
 
             ### Drop-in CDN snippet (minified + SRI)
 
@@ -102,6 +111,17 @@ jobs:
               defer></script>
             ```
 
+            ### One-tag install via bootstrap (requires backend endpoint)
+
+            ```html
+            <script src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@${{ github.ref_name }}/sdk/scale-bootstrap.min.js"
+                    data-tenant="your-tenant-slug"
+                    data-api="https://api.example.com"
+                    defer></script>
+            ```
+
+            See ONBOARDING.md for the `/api/sdk/tenant-bootstrap` contract.
+
             ### Quick download
             ```
             https://github.com/Github-SNI/scalability-sdk/releases/download/${{ github.ref_name }}/Scalability-SDK-${{ github.ref_name }}.zip
@@ -112,3 +132,5 @@ jobs:
             sdk/scale-sdk-v2.min.js
             sdk/scale-analytics.js
             sdk/scale-analytics.min.js
+            sdk/scale-bootstrap.js
+            sdk/scale-bootstrap.min.js

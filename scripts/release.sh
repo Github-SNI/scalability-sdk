@@ -66,11 +66,15 @@ SDK_SRI="$(sri sdk/scale-sdk-v2.js)"
 SDK_MIN_SRI="$(sri sdk/scale-sdk-v2.min.js)"
 ANA_SRI="$(sri sdk/scale-analytics.js)"
 ANA_MIN_SRI="$(sri sdk/scale-analytics.min.js)"
+BS_SRI="$(sri sdk/scale-bootstrap.js)"
+BS_MIN_SRI="$(sri sdk/scale-bootstrap.min.js)"
 
 printf "  scale-sdk-v2.js         sha384-%s\n" "$SDK_SRI"
 printf "  scale-sdk-v2.min.js     sha384-%s\n" "$SDK_MIN_SRI"
 printf "  scale-analytics.js      sha384-%s\n" "$ANA_SRI"
 printf "  scale-analytics.min.js  sha384-%s\n" "$ANA_MIN_SRI"
+printf "  scale-bootstrap.js      sha384-%s\n" "$BS_SRI"
+printf "  scale-bootstrap.min.js  sha384-%s\n" "$BS_MIN_SRI"
 
 # ---- README ----
 echo "==> Rewriting CDN snippets in README.md..."
@@ -102,7 +106,7 @@ fi
 
 # ---- Commit / tag / push ----
 echo "==> Committing..."
-git add package.json README.md sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js
+git add package.json README.md sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js sdk/scale-bootstrap.min.js
 git commit -m "release: ${TAG}"
 
 echo "==> Tagging $TAG..."
@@ -125,7 +129,7 @@ echo "==> Purging jsDelivr cache for floating tags..."
 MAJOR_MINOR="$(echo "$TAG" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/v\1/')"
 MAJOR="$(echo "$TAG" | sed -E 's/^v([0-9]+)\..*/v\1/')"
 FLOAT_TAGS=("$MAJOR_MINOR" "$MAJOR" "latest")
-FILES=(scale-sdk-v2.js scale-sdk-v2.min.js scale-analytics.js scale-analytics.min.js)
+FILES=(scale-sdk-v2.js scale-sdk-v2.min.js scale-analytics.js scale-analytics.min.js scale-bootstrap.js scale-bootstrap.min.js)
 TOTAL=$((${#FLOAT_TAGS[@]} * ${#FILES[@]}))
 
 purge_pass() {

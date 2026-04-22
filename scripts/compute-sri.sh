@@ -5,7 +5,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-for f in sdk/scale-sdk-v2.js sdk/scale-sdk-v2.min.js sdk/scale-analytics.js sdk/scale-analytics.min.js; do
+for f in sdk/scale-sdk-v2.js sdk/scale-sdk-v2.min.js sdk/scale-analytics.js sdk/scale-analytics.min.js sdk/scale-bootstrap.js sdk/scale-bootstrap.min.js; do
   if [[ ! -f "$f" ]]; then
     printf "%-40s (missing — run 'npm run build')\n" "$f"
     continue
