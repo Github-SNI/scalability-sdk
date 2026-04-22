@@ -1,6 +1,6 @@
 {
   "name": "scalability-sdk",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "description": "Scale Digital SDK — distribution repo (core + analytics, vanilla JS, CDN-shipped).",
   "scripts": {
