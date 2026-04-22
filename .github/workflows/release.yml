@@ -15,11 +15,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build SDK ZIP
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Rebuild minified from source so release artifacts are always
+      # generated from the tag's exact .js, even if the committed
+      # .min.js is stale (defensive — release.sh normally keeps them fresh).
+      - name: Build minified bundles
+        run: npm run build
+
+      - name: Compute SRI hashes
+        id: sri
+        run: |
+          sri() { openssl dgst -sha384 -binary "$1" | openssl base64 -A; }
+          {
+            echo "sdk=sha384-$(sri sdk/scale-sdk-v2.js)"
+            echo "sdk_min=sha384-$(sri sdk/scale-sdk-v2.min.js)"
+            echo "ana=sha384-$(sri sdk/scale-analytics.js)"
+            echo "ana_min=sha384-$(sri sdk/scale-analytics.min.js)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build release ZIP
         run: |
           VERSION=${GITHUB_REF_NAME}
           mkdir -p dist
-          zip -r "dist/Scalability-SDK-${VERSION}.zip" sdk/ docs/ README.md
+          zip -j "dist/Scalability-SDK-${VERSION}.zip" \
+            sdk/scale-sdk-v2.js \
+            sdk/scale-sdk-v2.min.js \
+            sdk/scale-analytics.js \
+            sdk/scale-analytics.min.js \
+            README.md \
+            docs/Scale-SDK-API-Docs-EN.docx
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -28,12 +59,48 @@ jobs:
           body: |
             ## Scale SDK ${{ github.ref_name }}
 
-            ### Files included
+            ### Files
+
             | File | Description |
             |---|---|
-            | `Scalability-SDK-${{ github.ref_name }}.zip` | Full pack (SDK + docs) |
-            | `scale-sdk-v2.js` | Core SDK — visits, DNI phone, TrustedForm, Fetch Interceptor |
-            | `scale-analytics.js` | Analytics module — GTM lazy-load + event tracking |
+            | `Scalability-SDK-${{ github.ref_name }}.zip` | Full pack (raw + minified + docs) |
+            | `scale-sdk-v2.js` | Core SDK — raw |
+            | `scale-sdk-v2.min.js` | Core SDK — minified |
+            | `scale-analytics.js` | Analytics module — raw |
+            | `scale-analytics.min.js` | Analytics module — minified |
+
+            ### Subresource Integrity (SRI)
+
+            | File | SHA-384 |
+            |---|---|
+            | `scale-sdk-v2.js` | `${{ steps.sri.outputs.sdk }}` |
+            | `scale-sdk-v2.min.js` | `${{ steps.sri.outputs.sdk_min }}` |
+            | `scale-analytics.js` | `${{ steps.sri.outputs.ana }}` |
+            | `scale-analytics.min.js` | `${{ steps.sri.outputs.ana_min }}` |
+
+            ### Drop-in CDN snippet (minified + SRI)
+
+            ```html
+            <script>
+              window.SCALE_CONFIG = {
+                funnelId: 'your-funnel-uuid',
+                funnelSlug: 'your-funnel-slug',
+                tenantKey: 'your-tenant-slug',
+                apiBaseUrl: 'https://api.example.com',
+                gtmId: 'GTM-XXXXXXX',
+                features: { visits: true, phone: true, trustedForm: true }
+              };
+            </script>
+            <script
+              src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@${{ github.ref_name }}/sdk/scale-analytics.min.js"
+              integrity="${{ steps.sri.outputs.ana_min }}"
+              crossorigin="anonymous"></script>
+            <script
+              src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@${{ github.ref_name }}/sdk/scale-sdk-v2.min.js"
+              integrity="${{ steps.sri.outputs.sdk_min }}"
+              crossorigin="anonymous"
+              defer></script>
+            ```
 
             ### Quick download
             ```
@@ -42,4 +109,6 @@ jobs:
           files: |
             dist/Scalability-SDK-${{ github.ref_name }}.zip
             sdk/scale-sdk-v2.js
+            sdk/scale-sdk-v2.min.js
             sdk/scale-analytics.js
+            sdk/scale-analytics.min.js

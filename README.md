@@ -14,6 +14,7 @@ Official Scale SDK distribution. Reference it directly from the CDN (recommended
 
 The SDK is served globally via [jsDelivr](https://www.jsdelivr.com/) directly from this repository — no download or self-hosting required. The snippet below is production-hardened with Subresource Integrity (SRI): if the file ever changes at the CDN, the browser rejects it. Drop it in your site's `<head>`:
 
+<!-- CDN-SNIPPET:START -->
 ```html
 <script>
   window.SCALE_CONFIG = {
@@ -35,6 +36,7 @@ The SDK is served globally via [jsDelivr](https://www.jsdelivr.com/) directly fr
   crossorigin="anonymous"
   defer></script>
 ```
+<!-- CDN-SNIPPET:END -->
 
 ### Version pinning
 
@@ -48,21 +50,27 @@ The `@v2.1.0` form is cached immutably by jsDelivr (1 year) and is the only patt
 
 ### Upgrading
 
-1. Bump the version in the two `src` URLs (e.g., `@v2.1.0` → `@v2.2.0`).
-2. Recompute both SRI hashes for the new version:
-   ```bash
-   curl -sL https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.2.0/sdk/scale-sdk-v2.js    | openssl dgst -sha384 -binary | openssl base64 -A
-   curl -sL https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.2.0/sdk/scale-analytics.js | openssl dgst -sha384 -binary | openssl base64 -A
-   ```
-3. Update both `integrity="sha384-..."` attributes with the new hashes.
+Run the release script (see "Publishing a new release" below) — it builds the minified files, recomputes all SRI hashes, rewrites this section of the README, commits, tags, and pushes. Manual editing is not required.
 
 ### Minified variant
 
-Append `.min.js` and jsDelivr minifies on the fly. Note that minified output **has a different SRI hash** than the raw file — recompute it if you switch.
+Pre-built minified files ship as part of every release (starting v2.1.1). They have their own SRI hashes and are served from the same jsDelivr path:
 
+<!-- CDN-MIN-SNIPPET:START -->
 ```html
-<script src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.1.0/sdk/scale-sdk-v2.min.js" defer></script>
+<script
+  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.1.0/sdk/scale-analytics.min.js"
+  integrity="sha384-<computed-on-release>"
+  crossorigin="anonymous"></script>
+<script
+  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.1.0/sdk/scale-sdk-v2.min.js"
+  integrity="sha384-<computed-on-release>"
+  crossorigin="anonymous"
+  defer></script>
 ```
+<!-- CDN-MIN-SNIPPET:END -->
+
+The minified bundle is ~50% smaller. Public API surface is identical — terser is configured to mangle locals only, never property names.
 
 ### Content Security Policy
 
@@ -111,17 +119,33 @@ https://github.com/Github-SNI/scalability-sdk/releases/download/v2.1.0/scale-sdk
 
 ## Publishing a new release
 
-```bash
-# 1. Make changes to sdk/
-git add .
-git commit -m "feat: update SDK to vX.Y.Z"
+Use the release script — it builds, hashes, updates docs, tags, and pushes in one shot:
 
-# 2. Create the tag — this triggers the release automatically
-git tag vX.Y.Z
-git push origin vX.Y.Z
+```bash
+# 1. Edit sdk/*.js and commit the source changes
+git add sdk/
+git commit -m "feat: <summary of SDK change>"
+
+# 2. Add a Changelog row below for the new version (manual step)
+#    (automation intentionally doesn't touch the changelog)
+
+# 3. Run the release script — version-bumps package.json, builds minified,
+#    recomputes SRI, rewrites the CDN snippets in this README, then
+#    commits, tags, and pushes.
+npm run release -- v2.2.0
 ```
 
-GitHub Actions packages the files and creates the release with the ZIP attached.
+The GitHub Actions workflow triggers on the tag push, generates the ZIP, and creates the release with all four files (raw + minified) attached as assets and SRI hashes embedded in the release notes.
+
+### What the release script does
+
+1. Preflight: on `main`, clean tree, tag doesn't exist yet.
+2. `npm install && npm run build` → produces `sdk/*.min.js` via terser.
+3. Computes SHA-384 SRI hashes for all four files.
+4. Rewrites the `<!-- CDN-SNIPPET:START -->` and `<!-- CDN-MIN-SNIPPET:START -->` blocks in this file with the new version and hashes.
+5. Bumps `version` in `package.json`.
+6. Shows the diff and asks for confirmation.
+7. Commits (`release: vX.Y.Z`), tags, pushes both `main` and the tag.
 
 ## Changelog
 
