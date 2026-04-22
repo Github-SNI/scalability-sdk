@@ -188,6 +188,7 @@ See [ONBOARDING.md](ONBOARDING.md) for the full client onboarding flow: backend 
 
 | Version | Date | Notes |
 |---------|---|---|
+| v2.3.0  | 2026-04-22 | Event catalog support: `scaleTrack()` validates props against `_remoteConfig.event_catalog`, DOM auto-track driven by backend-defined triggers (click, submit, load, scroll, time_on_page) with per-event debounce |
 | v2.2.0  | 2026-04-22 | New `scale-bootstrap.js` one-tag loader (fetches `/api/sdk/tenant-bootstrap`), new `ScaleSDK.healthCheck()` public API, `ONBOARDING.md` integration guide |
 | v2.1.1  | 2026-04-22 | First release with minified bundles + SRI; automated release flow |
 | v2.1.0  | 2026-04-22 | Remote SDK config (`/api/sdk/config`), `phone_swap` driven by remote config, new `scaleTrack()` public API, TrustedForm snippet updated to ActiveProspect's current recommendation (noscript pixel + `use_tagged_consent`) |

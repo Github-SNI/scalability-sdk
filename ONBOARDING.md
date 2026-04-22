@@ -125,12 +125,52 @@ Runtime config per tenant. The SDK caches this in `localStorage` (TTL 5 min) and
       "targets": [
         { "selector": "a.phone-link", "match": "800-123-4567" }
       ]
-    }
+    },
+    "event_catalog": [
+      {
+        "name": "video_played",
+        "props_schema": {
+          "video_id": { "type": "string", "required": true },
+          "duration_s": { "type": "number" }
+        },
+        "auto_track": null
+      },
+      {
+        "name": "cta_clicked",
+        "props_schema": null,
+        "auto_track": {
+          "trigger": "click",
+          "selector": "a.cta, button.cta",
+          "debounce_ms": 500
+        }
+      },
+      {
+        "name": "scroll_50",
+        "auto_track": { "trigger": "scroll", "threshold": 50 }
+      },
+      {
+        "name": "engaged_30s",
+        "auto_track": { "trigger": "time_on_page", "threshold": 30 }
+      }
+    ]
   }
 }
 ```
 
 Any field may be omitted; the SDK falls back to `SCALE_CONFIG` defaults. Set `enabled: false` as a kill switch to disable the SDK globally for this tenant without redeploying.
+
+### Event catalog (v2.3.0+)
+
+`event_catalog` is an optional array of event definitions the tenant has registered via the admin UI (`/dashboard/sdk-config` → Events tab). Each entry drives two SDK behaviors:
+
+- **Validation**: when the site calls `ScaleSDK.track('<name>', props)`, if the event is in the catalog and has `props_schema`, the SDK validates props (type, `required`, `enum`) and logs a `console.warn` on mismatches (in debug mode). The event is still sent either way. Events not in the catalog are accepted and flagged `is_validated=false` server-side.
+- **Auto-track**: entries with `auto_track` get wired to DOM listeners automatically — no call from the site's code needed. Supported triggers:
+  - `click`, `submit` — event delegation on `selector`, with optional `debounce_ms`
+  - `load` — fires once on page ready
+  - `scroll` — fires once scroll % crosses `threshold` (0–100)
+  - `time_on_page` — fires once after `threshold` seconds
+
+Auto-track is idempotent (safe against re-init) and bypassed if `event_catalog` is absent.
 
 ## 6. `/api/sdk/tenant-bootstrap` response shape
 

@@ -1007,6 +1007,10 @@
     if (c.phone_swap && c.phone_swap.targets && c.phone_swap.targets.length) {
       onReady(function() { applyPhoneSwapTargets(c.phone_swap.targets); });
     }
+    // Wire DOM auto-fire bindings for any catalog entries with auto_track.
+    if (Array.isArray(c.event_catalog) && c.event_catalog.length) {
+      setupAutoTrack(c.event_catalog);
+    }
     window.dispatchEvent(new CustomEvent('scale-sdk-config-ready', { detail: c }));
   }
 
@@ -1071,17 +1075,157 @@
       .catch(function(err) { log('Remote config fetch failed', err); return null; });
   }
 
+  // ==================== Event catalog helpers ==================
+  // The SDK config response may include `event_catalog` — the per-tenant list
+  // of defined events with optional props_schema + auto_track triggers.
+  // - Known events get client-side prop validation (warn in console, still sent).
+  // - Unknown events are still accepted (backend flags them is_validated=false).
+
+  function getCatalogEntry(eventName) {
+    if (!_remoteConfig || !Array.isArray(_remoteConfig.event_catalog)) return null;
+    for (var i = 0; i < _remoteConfig.event_catalog.length; i++) {
+      if (_remoteConfig.event_catalog[i].name === eventName) return _remoteConfig.event_catalog[i];
+    }
+    return null;
+  }
+
+  function validateEventProps(props, schema) {
+    if (!schema || typeof schema !== 'object') return [];
+    var errors = [];
+    var keys = Object.keys(schema);
+    for (var i = 0; i < keys.length; i++) {
+      var field = keys[i];
+      var spec = schema[field] || {};
+      var val = props ? props[field] : undefined;
+      if (val === undefined || val === null) {
+        if (spec.required) errors.push('Missing required field: ' + field);
+        continue;
+      }
+      var match = false;
+      switch (spec.type) {
+        case 'string':  match = typeof val === 'string'; break;
+        case 'number':  match = typeof val === 'number'; break;
+        case 'boolean': match = typeof val === 'boolean'; break;
+        case 'object':  match = typeof val === 'object' && !Array.isArray(val); break;
+        case 'array':   match = Array.isArray(val); break;
+        default:        match = true;
+      }
+      if (!match) {
+        errors.push('Field "' + field + '" expected ' + spec.type + ', got ' + (Array.isArray(val) ? 'array' : typeof val));
+        continue;
+      }
+      if (spec.enum && spec.enum.indexOf(val) === -1) {
+        errors.push('Field "' + field + '" value ' + JSON.stringify(val) + ' not in enum [' + spec.enum.join(', ') + ']');
+      }
+    }
+    return errors;
+  }
+
+  // ==================== Auto-track — DOM bindings driven by catalog =========
+  // For every catalog entry with an `auto_track` config, wire the matching DOM
+  // listener so the event fires without the site having to call track() by hand.
+  var _autoTrackBound = false;
+  var _autoTrackTimers = {}; // name → last fire timestamp, for debounce
+
+  function autoFireGuard(name, debounceMs) {
+    if (!debounceMs) return true;
+    var last = _autoTrackTimers[name] || 0;
+    var now = Date.now();
+    if (now - last < debounceMs) return false;
+    _autoTrackTimers[name] = now;
+    return true;
+  }
+
+  function setupAutoTrack(catalog) {
+    if (!Array.isArray(catalog) || catalog.length === 0) return;
+    if (_autoTrackBound) return; // idempotent
+    _autoTrackBound = true;
+
+    var loadFires   = [];
+    var scrollFires = [];
+    var timeFires   = [];
+
+    onReady(function() {
+      for (var i = 0; i < catalog.length; i++) {
+        (function(def) {
+          var at = def.auto_track;
+          if (!at || !at.trigger) return;
+          var dbg = at.debounce_ms || 0;
+
+          if ((at.trigger === 'click' || at.trigger === 'submit') && at.selector) {
+            document.addEventListener(at.trigger, function(ev) {
+              var target = ev.target;
+              if (!target || !target.closest) return;
+              if (target.closest(at.selector)) {
+                if (!autoFireGuard(def.name, dbg)) return;
+                scaleTrack(def.name, { trigger: at.trigger, selector: at.selector });
+              }
+            }, true);
+          } else if (at.trigger === 'load') {
+            loadFires.push(def);
+          } else if (at.trigger === 'scroll' && typeof at.threshold === 'number') {
+            scrollFires.push(def);
+          } else if (at.trigger === 'time_on_page' && typeof at.threshold === 'number') {
+            timeFires.push(def);
+          }
+        })(catalog[i]);
+      }
+
+      // Fire load-trigger events once the page is ready.
+      for (var j = 0; j < loadFires.length; j++) scaleTrack(loadFires[j].name, { trigger: 'load' });
+
+      // Scroll depth: fire once threshold crossed (% of document height).
+      if (scrollFires.length) {
+        var fired = {};
+        window.addEventListener('scroll', function() {
+          var h = document.documentElement;
+          var total = (h.scrollHeight - h.clientHeight) || 1;
+          var pct = Math.min(100, Math.round((h.scrollTop || window.pageYOffset) / total * 100));
+          for (var k = 0; k < scrollFires.length; k++) {
+            var d = scrollFires[k];
+            if (!fired[d.name] && pct >= d.auto_track.threshold) {
+              fired[d.name] = true;
+              scaleTrack(d.name, { trigger: 'scroll', scroll_pct: pct });
+            }
+          }
+        }, { passive: true });
+      }
+
+      // Time on page: fire once threshold (seconds) is reached.
+      for (var m = 0; m < timeFires.length; m++) {
+        (function(d) {
+          setTimeout(function() {
+            scaleTrack(d.name, { trigger: 'time_on_page', seconds: d.auto_track.threshold });
+          }, d.auto_track.threshold * 1000);
+        })(timeFires[m]);
+      }
+    });
+  }
+
   // ==================== scaleTrack — fire events to backend ==================
   function scaleTrack(eventName, props) {
     if (!eventName) return;
     var session = getSession();
     var funnelId = cfg.funnelId || (_remoteConfig && _remoteConfig.funnel_id);
     if (!funnelId) { log('scaleTrack: no funnelId'); return; }
+    props = props || {};
+
+    // Client-side validation against catalog (best-effort, non-blocking).
+    var def = getCatalogEntry(eventName);
+    if (def && def.props_schema) {
+      var errors = validateEventProps(props, def.props_schema);
+      if (errors.length && debug) {
+        console.warn('[ScaleSDK] event "' + eventName + '" props issues:', errors);
+      }
+    } else if (!def) {
+      log('scaleTrack: event "' + eventName + '" not in catalog (sent as ad-hoc)');
+    }
+
     var body = {
       funnel_id: funnelId,
       session_id: session.sessionId,
       event_name: eventName,
-      event_data: props || {},
+      event_data: props,
       page_url: window.location.href,
       timestamp: new Date().toISOString()
     };
