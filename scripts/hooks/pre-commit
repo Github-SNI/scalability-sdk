@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Blocks commits that edit SDK source but leave sdk/*.min.js stale.
+# Bypass (only if you know why): `git commit --no-verify`.
+set -euo pipefail
+
+STAGED_SRC=$(git diff --cached --name-only --diff-filter=ACMR \
+  | grep -E '^sdk/(scale-sdk-v2|scale-analytics)\.js$' || true)
+
+if [[ -z "$STAGED_SRC" ]]; then
+  exit 0
+fi
+
+if [[ ! -d node_modules ]]; then
+  echo "[pre-commit] node_modules missing — run 'npm install' before committing SDK source." >&2
+  exit 1
+fi
+
+echo "[pre-commit] SDK source staged — rebuilding minified..."
+npm run build --silent
+
+# If rebuilding produced changes vs the current tree state, the committed
+# .min.js doesn't match the .js being committed.
+if ! git diff --quiet sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js; then
+  echo ""
+  echo "[pre-commit] ERROR: sdk/*.min.js is out of date relative to the source." >&2
+  echo ""
+  git --no-pager diff --stat sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js >&2
+  echo ""
+  echo "Fix:" >&2
+  echo "  git add sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js" >&2
+  echo "  git commit ...  (re-run your commit)" >&2
+  echo ""
+  echo "Or bypass intentionally with 'git commit --no-verify' — the CI check on main will still block merge." >&2
+  exit 1
+fi
+
+echo "[pre-commit] minified files in sync."

@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  minified-in-sync:
+    name: sdk/*.min.js is in sync with source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Rebuild minified
+        run: npm run build
+
+      - name: Fail if committed .min.js is stale
+        run: |
+          if ! git diff --quiet sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js; then
+            echo "::error::sdk/*.min.js is out of date. Run 'npm run build' locally, commit, and push."
+            git --no-pager diff --stat sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js
+            git --no-pager diff sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js | head -80
+            exit 1
+          fi
+          echo "Minified files in sync with source."

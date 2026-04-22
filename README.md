@@ -12,7 +12,41 @@ Official Scale SDK distribution. Reference it directly from the CDN (recommended
 
 ## Use via CDN (recommended)
 
-The SDK is served globally via [jsDelivr](https://www.jsdelivr.com/) directly from this repository — no download or self-hosting required. The snippet below is production-hardened with Subresource Integrity (SRI): if the file ever changes at the CDN, the browser rejects it. Drop it in your site's `<head>`:
+The SDK is served globally via [jsDelivr](https://www.jsdelivr.com/) directly from this repository — no download, no self-hosting. Clients copy the snippet once; we push patch releases and they reach every site within seconds (the release workflow purges the jsDelivr cache on every tag).
+
+### Drop-in snippet (recommended)
+
+<!-- CDN-SIMPLE-SNIPPET:START -->
+```html
+<script>
+  window.SCALE_CONFIG = {
+    funnelId: 'your-funnel-uuid',
+    funnelSlug: 'your-funnel-slug',
+    tenantKey: 'your-tenant-slug',
+    apiBaseUrl: 'https://api.example.com',
+    gtmId: 'GTM-XXXXXXX',
+    features: { visits: true, phone: true, trustedForm: true }
+  };
+</script>
+<script src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.1/sdk/scale-analytics.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.1/sdk/scale-sdk-v2.min.js" defer></script>
+```
+<!-- CDN-SIMPLE-SNIPPET:END -->
+
+`@vX.Y` always resolves to the latest `vX.Y.*` — every patch release (bugfixes, timing improvements, etc.) reaches clients automatically. Minor bumps (`vX.Y+1.0`) and major bumps (`vX+1.0.0`) do **not** change the content at `@vX.Y`, so clients can safely stay on this URL until they explicitly opt into a newer line.
+
+### Version pinning (choose your cadence)
+
+| URL pattern | Auto-receives | Opt-in required for | Typical use |
+|---|---|---|---|
+| `@vX.Y` (the snippet above) | Patches within `X.Y` | Minors, majors | **Default for clients** |
+| `@vX` | Patches + minors within `X` | Majors | Clients fine with new features landing automatically |
+| `@vX.Y.Z` | Nothing — immutable | All updates | Strict change management / can be combined with SRI |
+| `@latest` | Everything, including majors | Nothing | Dev / internal only |
+
+### Advanced: pinned + SRI (strict change management)
+
+For clients in regulated industries or with strict change-management policies, pin an exact version and combine with [Subresource Integrity](https://developer.mozilla.org/en-US/docs/Web/Security/Subresource_Integrity). The browser computes the file's SHA-384 on load and refuses to execute it if the bytes don't match — so even a CDN-level compromise can't inject code:
 
 <!-- CDN-SNIPPET:START -->
 ```html
@@ -38,23 +72,7 @@ The SDK is served globally via [jsDelivr](https://www.jsdelivr.com/) directly fr
 ```
 <!-- CDN-SNIPPET:END -->
 
-### Version pinning
-
-| URL pattern | Behavior | Use for |
-|---|---|---|
-| `@v2.1.0` | Immutable, specific version | **Production** (use with SRI) |
-| `@v2` | Latest `2.x.x` patch + minor | Staging / auto-updates within a major |
-| `@latest` | Always the newest tagged release | Dev / internal only |
-
-The `@v2.1.0` form is cached immutably by jsDelivr (1 year) and is the only pattern safe to combine with SRI. Floating tags like `@v2` or `@latest` will break SRI the moment a new version is released — use them only without the `integrity` attribute.
-
-### Upgrading
-
-Run the release script (see "Publishing a new release" below) — it builds the minified files, recomputes all SRI hashes, rewrites this section of the README, commits, tags, and pushes. Manual editing is not required.
-
-### Minified variant
-
-Pre-built minified files ship as part of every release (starting v2.1.1). They have their own SRI hashes and are served from the same jsDelivr path:
+Minified + SRI variant:
 
 <!-- CDN-MIN-SNIPPET:START -->
 ```html
@@ -70,7 +88,7 @@ Pre-built minified files ship as part of every release (starting v2.1.1). They h
 ```
 <!-- CDN-MIN-SNIPPET:END -->
 
-The minified bundle is ~50% smaller. Public API surface is identical — terser is configured to mangle locals only, never property names.
+SRI only works with immutable URLs (`@vX.Y.Z`), since floating tags serve different bytes after every release. Clients on SRI opt into each update by running the upgrade script and re-deploying.
 
 ### Content Security Policy
 
@@ -94,8 +112,9 @@ Replace `https://api.example.com` with your `apiBaseUrl`. Drop the `googletagman
 ### Why this is safe
 
 - **Transport**: jsDelivr serves over HTTPS with HSTS and `cross-origin-resource-policy: cross-origin`; the file can't be tampered with in flight.
-- **Origin**: immutable tags mean the file at `@v2.1.0` is byte-identical forever — GitHub will not let a tag be moved silently to point somewhere else.
-- **CDN compromise**: SRI protects against the *one* residual risk — a malicious change at jsDelivr itself. If the bytes don't match the hash, the browser refuses to execute.
+- **Origin**: git tags are immutable — once a specific `vX.Y.Z` is published, its bytes never change. The floating `@vX.Y` URL just points to the latest `vX.Y.*` tag, and that tag's content itself can't be rewritten.
+- **CDN compromise (pinned)**: SRI protects against a malicious change at jsDelivr — the browser refuses to execute if the hash doesn't match. Use the "Advanced: pinned + SRI" variant when you need this.
+- **CDN compromise (floating)**: the floating-tag variant trades SRI for automatic updates. The residual risk is a jsDelivr compromise between our purge and the next integrity signal we notice. Acceptable for most clients; clients needing belt-and-braces use the pinned variant.
 - **SDK code**: no `innerHTML`, `eval`, `document.write`, or string-based timers. All DOM writes go through `textContent`/`nodeValue`; all external scripts (GTM, TrustedForm) use fixed, hardcoded hostnames.
 
 ## Download (self-hosting)
@@ -146,6 +165,18 @@ The GitHub Actions workflow triggers on the tag push, generates the ZIP, and cre
 5. Bumps `version` in `package.json`.
 6. Shows the diff and asks for confirmation.
 7. Commits (`release: vX.Y.Z`), tags, pushes both `main` and the tag.
+
+## Development
+
+```bash
+git clone https://github.com/Github-SNI/scalability-sdk.git
+cd scalability-sdk
+npm install   # installs terser + wires up the pre-commit hook
+```
+
+`npm install` runs a `prepare` step that points `core.hooksPath` at `scripts/hooks`. The pre-commit hook rebuilds `sdk/*.min.js` whenever you stage changes to `sdk/scale-sdk-v2.js` or `sdk/scale-analytics.js` and blocks the commit if the minified output drifts from the source. Bypass with `git commit --no-verify` — CI will still reject the PR.
+
+CI (`.github/workflows/ci.yml`) runs on every PR and push to `main`: it re-runs `npm run build` and fails if the committed `.min.js` doesn't match what terser produces from the source. This keeps the CDN and the release artifacts in sync without trusting individual developer setups.
 
 ## Changelog
 

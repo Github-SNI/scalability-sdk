@@ -111,8 +111,34 @@ git tag "$TAG"
 echo "==> Pushing main and $TAG..."
 git push origin main "$TAG"
 
+# ---- Purge jsDelivr floating tags ----
+# jsDelivr caches floating URLs (@v2, @v2.1, @latest) for up to 12h. Purging
+# forces the edges to refetch from GitHub so clients see the new release in
+# seconds instead of hours. Exact-version URLs (@vX.Y.Z) don't need purging —
+# they're immutable and always serve the right bytes on first request.
+echo ""
+echo "==> Purging jsDelivr cache for floating tags..."
+MAJOR_MINOR="$(echo "$TAG" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/v\1/')"
+MAJOR="$(echo "$TAG" | sed -E 's/^v([0-9]+)\..*/v\1/')"
+FLOAT_TAGS=("$MAJOR_MINOR" "$MAJOR" "latest")
+FILES=(scale-sdk-v2.js scale-sdk-v2.min.js scale-analytics.js scale-analytics.min.js)
+PURGED=0
+for t in "${FLOAT_TAGS[@]}"; do
+  for f in "${FILES[@]}"; do
+    url="https://purge.jsdelivr.net/gh/Github-SNI/scalability-sdk@${t}/sdk/${f}"
+    status=$(curl -s -o /dev/null -w "%{http_code}" "$url" || echo "000")
+    if [[ "$status" == "200" ]]; then
+      PURGED=$((PURGED + 1))
+    else
+      printf "  WARN: purge failed for @%s/%s (HTTP %s)\n" "$t" "$f" "$status" >&2
+    fi
+  done
+done
+echo "  purged ${PURGED}/$((${#FLOAT_TAGS[@]} * ${#FILES[@]})) URLs"
+
 echo ""
 echo "Release ${TAG} pushed. GitHub Actions will publish the release in ~30-60s."
 echo ""
 echo "Verify once CI finishes:"
 echo "  curl -sI https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@${TAG}/sdk/scale-sdk-v2.min.js | head -1"
+echo "  curl -sI https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@${MAJOR_MINOR}/sdk/scale-sdk-v2.min.js | head -1"
