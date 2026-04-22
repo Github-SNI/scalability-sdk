@@ -1,4 +1,4 @@
-// Scale Digital - SDK v2.0.0
+// Scale Digital - SDK v2.1.0
 // Core SDK for the new SaaS backend (funnels, sessions, tenants)
 // Multi-site infrastructure: session, cookie (SSR), visit registration, phone DNI, TrustedForm
 // Everything else (forms, validation, analytics, content rendering) is site responsibility
@@ -37,9 +37,20 @@
   var features = cfg.features || {};
   var debug = cfg.debug || false;
   var apiBase = cfg.apiBaseUrl || '';
+  var tenantKey = cfg.tenantKey || cfg.tenantSlug || null; // slug used for remote-config lookup
+  var _remoteConfig = null; // populated async from /api/sdk/config; may stay null
 
   function featureEnabled(name, defaultVal) {
+    // Remote config can override site-level features. Priority:
+    // 1. SCALE_CONFIG.features[name] (explicit site override)
+    // 2. _remoteConfig.tracking.<name> (boolean) OR .enabled (object)
+    // 3. defaultVal
     if (features[name] !== undefined) return !!features[name];
+    if (_remoteConfig && _remoteConfig.tracking && _remoteConfig.tracking[name] !== undefined) {
+      var t = _remoteConfig.tracking[name];
+      if (typeof t === 'boolean') return t;
+      if (t && typeof t === 'object' && 'enabled' in t) return !!t.enabled;
+    }
     return defaultVal !== false;
   }
 
@@ -336,7 +347,12 @@
 
     log('Registering visit:', payload);
 
-    fetchWithTimeout(apiBase + '/api/visits', {
+    var visitUrl = apiBase + '/api/visits';
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      visitUrl += '?skip_bh=true';
+    }
+
+    fetchWithTimeout(visitUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -834,10 +850,25 @@
       document.head.appendChild(preconnect);
       setTimeout(function() {
         var s = document.createElement('script');
-        s.src = 'https://api.trustedform.com/trustedform.js?provide_referrer=false&field=xxTrustedFormCertUrl&v=' + Math.floor(Date.now() / 86400000);
+        // Matches ActiveProspect's official recommended snippet:
+        //  - use_tagged_consent=true → TF scans data-tf-element-role markers
+        //  - l= timestamp+random → per-load cache buster (not daily)
+        s.src = 'https://api.trustedform.com/trustedform.js?field=xxTrustedFormCertUrl&use_tagged_consent=true&l=' + new Date().getTime() + Math.random();
         s.async = true;
         s.defer = true;
         document.head.appendChild(s);
+
+        // Insert the noscript pixel fallback if not already present. TF uses
+        // this to record submissions when JS is disabled/blocked.
+        if (!document.querySelector('img[src*="api.trustedform.com/ns.gif"]')) {
+          var ns = document.createElement('noscript');
+          var img = document.createElement('img');
+          img.src = 'https://api.trustedform.com/ns.gif';
+          img.alt = '';
+          ns.appendChild(img);
+          document.body.appendChild(ns);
+        }
+
         log('TrustedForm script loaded');
       }, 100);
     }
@@ -932,13 +963,152 @@
     };
   }
 
+  // ==================== Remote SDK Config ====================
+  // Fetches per-tenant config from /api/sdk/config?tenant=<slug>. Cached in
+  // localStorage with a short TTL so config changes reach the field within
+  // minutes without hammering the backend. Falls back to cached or defaults
+  // on network failure — never blocks boot.
+  var REMOTE_CFG_CACHE_KEY = 'scale_sdk_remote_cfg_v1';
+  var REMOTE_CFG_TTL_MS = 5 * 60 * 1000; // 5 min
+
+  function readCachedConfig() {
+    try {
+      var raw = localStorage.getItem(REMOTE_CFG_CACHE_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (parsed && parsed.tenant === tenantKey && (Date.now() - parsed.at) < REMOTE_CFG_TTL_MS) {
+        return parsed.cfg;
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  function writeCachedConfig(c) {
+    try {
+      localStorage.setItem(REMOTE_CFG_CACHE_KEY, JSON.stringify({ tenant: tenantKey, at: Date.now(), cfg: c }));
+    } catch (e) { /* ignore */ }
+  }
+
+  function applyRemoteConfig(c) {
+    if (!c || c.enabled === false) {
+      log('Remote config disabled SDK — skipping features');
+      _remoteConfig = c || null;
+      return;
+    }
+    _remoteConfig = c;
+    // If remote config says phone_swap with static number, seed the phone state.
+    if (c.phone_swap && c.phone_swap.enabled && c.phone_swap.mode === 'static' && c.phone_swap.static_number) {
+      _phoneState.phoneNumber = c.phone_swap.static_number;
+      _phoneState.formattedPhone = formatPhoneNumber(c.phone_swap.static_number);
+      _phoneState.fetched = true;
+      onReady(function() { refreshPhoneDisplay(); });
+    }
+    // Replace any configured target strings/selectors once phone is known.
+    if (c.phone_swap && c.phone_swap.targets && c.phone_swap.targets.length) {
+      onReady(function() { applyPhoneSwapTargets(c.phone_swap.targets); });
+    }
+    window.dispatchEvent(new CustomEvent('scale-sdk-config-ready', { detail: c }));
+  }
+
+  function applyPhoneSwapTargets(targets) {
+    var num = _phoneState.phoneNumber;
+    if (!num) return;
+    var formatted = _phoneState.formattedPhone || formatPhoneNumber(num);
+    var tel = num.replace(/\D/g, '');
+    if (tel.length === 11 && tel[0] === '1') tel = tel.slice(1);
+    var telHref = 'tel:+1' + tel;
+
+    targets.forEach(function(t) {
+      if (t.selector) {
+        document.querySelectorAll(t.selector).forEach(function(el) {
+          if (el.tagName === 'A') el.href = telHref;
+          // Replace the match string inside text if present, else replace all text.
+          if (t.match && el.textContent.indexOf(t.match) !== -1) {
+            el.textContent = el.textContent.split(t.match).join(formatted);
+          } else if (!t.match) {
+            el.textContent = formatted;
+          }
+        });
+      } else if (t.match) {
+        // Walk the DOM for matching strings and swap them (light-weight).
+        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+        var node;
+        while ((node = walker.nextNode())) {
+          if (node.nodeValue && node.nodeValue.indexOf(t.match) !== -1) {
+            node.nodeValue = node.nodeValue.split(t.match).join(formatted);
+          }
+        }
+      }
+    });
+    log('Applied phone_swap targets', targets.length);
+  }
+
+  function loadRemoteConfig() {
+    if (!tenantKey || !apiBase) {
+      log('tenantKey/apiBase missing — skipping remote config fetch');
+      return Promise.resolve(null);
+    }
+    var cached = readCachedConfig();
+    if (cached) {
+      applyRemoteConfig(cached);
+      // Still refresh in the background so the next page has the latest.
+      fetchWithTimeout(apiBase + '/api/sdk/config?tenant=' + encodeURIComponent(tenantKey), { method: 'GET' }, 5000)
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(body) { if (body && body.data) writeCachedConfig(body.data); })
+        .catch(function() { /* ignore */ });
+      return Promise.resolve(cached);
+    }
+    return fetchWithTimeout(apiBase + '/api/sdk/config?tenant=' + encodeURIComponent(tenantKey), { method: 'GET' }, 5000)
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(body) {
+        if (body && body.data) {
+          writeCachedConfig(body.data);
+          applyRemoteConfig(body.data);
+          return body.data;
+        }
+        return null;
+      })
+      .catch(function(err) { log('Remote config fetch failed', err); return null; });
+  }
+
+  // ==================== scaleTrack — fire events to backend ==================
+  function scaleTrack(eventName, props) {
+    if (!eventName) return;
+    var session = getSession();
+    var funnelId = cfg.funnelId || (_remoteConfig && _remoteConfig.funnel_id);
+    if (!funnelId) { log('scaleTrack: no funnelId'); return; }
+    var body = {
+      funnel_id: funnelId,
+      session_id: session.sessionId,
+      event_name: eventName,
+      event_data: props || {},
+      page_url: window.location.href,
+      timestamp: new Date().toISOString()
+    };
+    var endpoint = (_remoteConfig && _remoteConfig.endpoints && _remoteConfig.endpoints.events) || '/api/events';
+    return fetchWithTimeout(apiBase + endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }, 5000).then(function(r) {
+      return r.ok ? r.json() : null;
+    }).catch(function(err) {
+      log('scaleTrack failed', eventName, err);
+      return null;
+    });
+  }
+
   // ==================== Initialization ====================
   function init() {
     log('Initializing SDK v2', {
       funnelId: cfg.funnelId,
       funnelSlug: cfg.funnelSlug,
-      apiBase: apiBase
+      apiBase: apiBase,
+      tenantKey: tenantKey
     });
+
+    // Kick off remote-config fetch (non-blocking). Applies when it resolves.
+    loadRemoteConfig();
 
     // Sync initial cookie data for SSR
     syncCookieFromSession(getSession(), null);
@@ -968,7 +1138,7 @@
 
   // ==================== Public API ====================
   window.ScaleSDK = {
-    version: '2.0.0',
+    version: '2.1.0',
 
     // --- Backward compatibility with SDK v1 public API ---
     getCookieData: getCookieData,
@@ -1059,8 +1229,18 @@
     },
 
     // Manual init
-    init: init
+    init: init,
+
+    // Remote config access (may be null if not loaded yet)
+    getRemoteConfig: function() { return _remoteConfig; },
+    reloadRemoteConfig: loadRemoteConfig,
+
+    // Track a custom event → POST /api/events
+    track: scaleTrack
   };
+
+  // Also expose scaleTrack as a top-level alias for convenience.
+  window.scaleTrack = scaleTrack;
 
   // Auto-initialize if configured
   if (cfg.funnelId || cfg.funnelSlug) {

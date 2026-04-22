@@ -1,4 +1,4 @@
-Scalability SDK — v2.0.1
+Scalability SDK — v2.1.0
 =======================
 
 CONTENTS:
@@ -12,6 +12,18 @@ SCRIPT HOSTING:
   Upload the /sdk/ files to your server or CDN and reference
   them in your WordPress functions.php.
 
+CHANGELOG v2.1.0:
+  - Remote SDK config: SDK fetches per-tenant config from /api/sdk/config?tenant=<slug>
+    Cached in localStorage (5 min TTL) with background refresh. Requires new
+    SCALE_CONFIG.tenantKey (or tenantSlug) field.
+  - Feature priority: site override → remote config → default
+  - phone_swap driven by remote config (selector + text-match DOM replacement)
+  - New scaleTrack(eventName, props) public API → POST /api/events
+  - TrustedForm snippet updated to ActiveProspect's current recommendation:
+      use_tagged_consent=true + per-load cache-buster + noscript ns.gif fallback
+  - New public API: ScaleSDK.getRemoteConfig(), ScaleSDK.reloadRemoteConfig(),
+    ScaleSDK.scaleTrack()
+
 CHANGELOG v2.0.1:
   - Phone number now resolved directly from visit registration response
     (no separate /api/calls/phone/assign call needed)
@@ -22,4 +34,4 @@ CHANGELOG v2.0.1:
   - funnel_step_id included in visit tracking payload
   - Optimized phone fetch timings (faster display after LCP)
 
-VERSION: SDK v2.0.1 | Docs v1.1 | 2026
+VERSION: SDK v2.1.0 | Docs v1.1 | 2026
