@@ -89,6 +89,9 @@ node -e "
   fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
 "
 
+echo "==> Syncing package-lock.json to the new version..."
+npm install --package-lock-only --no-audit --no-fund --silent
+
 # ---- Review ----
 echo ""
 echo "==> Changes staged for the release commit:"
@@ -106,7 +109,7 @@ fi
 
 # ---- Commit / tag / push ----
 echo "==> Committing..."
-git add package.json README.md sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js sdk/scale-bootstrap.min.js
+git add package.json package-lock.json README.md sdk/scale-sdk-v2.min.js sdk/scale-analytics.min.js sdk/scale-bootstrap.min.js
 git commit -m "release: ${TAG}"
 
 echo "==> Tagging $TAG..."
