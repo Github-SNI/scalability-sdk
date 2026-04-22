@@ -7,8 +7,8 @@
 //
 // <script>
 //   window.SCALE_CONFIG = {
-//     funnelId: 'uuid-del-funnel',
-//     funnelSlug: 'mi-funnel',
+//     funnelId: 'your-funnel-uuid',
+//     funnelSlug: 'your-funnel-slug',
 //     apiBaseUrl: 'https://api.example.com',
 //     debug: false,
 //     features: {
