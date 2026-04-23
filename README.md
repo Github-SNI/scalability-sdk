@@ -6,11 +6,23 @@ Official Scale SDK distribution. Reference it directly from the CDN (recommended
 
 | File | Description |
 |---|---|
-| `sdk/scale-sdk-v2.js` | Core SDK — visits, DNI phone, TrustedForm, Fetch Interceptor, `healthCheck()` |
+| `sdk/scale-sdk-v2.js` | Core SDK — visits, DNI phone, TrustedForm, fetch interceptor, `submitLead()`, `<form data-scale-form>`, GA4 identity capture, `healthCheck()` |
 | `sdk/scale-analytics.js` | Analytics module — GTM lazy-load + event tracking |
-| `sdk/scale-bootstrap.js` | One-tag loader — fetches config from backend, boots the SDK |
-| `ONBOARDING.md` | Client integration guide — backend setup, endpoints, verification |
+| `sdk/scale-bootstrap.js` | One-tag loader — fetches config from backend, boots the SDK (supports `data-funnel` for multi-funnel tenants) |
+| `ONBOARDING.md` | Client integration guide — backend setup, endpoints, **lead form submission (§4.1)**, verification |
+| `BACKEND.md` | Backend team reference — endpoint specs, request/response shapes, CORS + security |
 | `docs/Scale-SDK-API-Docs-EN.docx` | Technical documentation |
+
+## What the SDK gives you
+
+- **Automatic visit tracking** on every page load (one `POST /api/visits` per session, enriched with UTMs, click IDs, and GA4 client/session IDs).
+- **DNI phone swap** — replaces static numbers on the page with a tenant-assigned tracking number.
+- **TrustedForm** — reads the cert URL and attaches it to lead submissions for compliance.
+- **Lead submission end-to-end** (v2.5.0+) — `ScaleSDK.submitLead(fields)` or `<form data-scale-form="lead">`. The SDK knows the URL, the body shape, and which fields to auto-attach (session, UTM, click IDs, GA4 IDs, TrustedForm URL). Client code only hands over the form values.
+- **Transparent enrichment for raw `fetch()` callers** — existing WordPress plugins or custom form code making their own `POST /api/leads` get the same auto-attached fields via a fetch interceptor, no code change required.
+- **Custom events** — `ScaleSDK.track(name, props)` with optional catalog-driven validation and auto-track rules.
+- **Remote kill switch + config** — disable the SDK per-tenant without redeploying the site.
+- **`healthCheck()`** — console-callable smoke test that verifies config + backend reachability without side effects.
 
 ## Use via CDN (recommended)
 
@@ -182,12 +194,15 @@ CI (`.github/workflows/ci.yml`) runs on every PR and push to `main`: it re-runs 
 
 ## Integration guide
 
-See [ONBOARDING.md](ONBOARDING.md) for the full client onboarding flow: backend records needed per tenant, API endpoints, the two install patterns (static config vs. one-tag bootstrap), `ScaleSDK.healthCheck()` usage, verification steps, and a rollout checklist.
+See [ONBOARDING.md](ONBOARDING.md) for the full client onboarding flow: backend records needed per tenant, API endpoints, the two install patterns (static config vs. one-tag bootstrap), **lead form submission (§4.1)**, `ScaleSDK.healthCheck()` usage, verification steps, and a rollout checklist.
 
 ## Changelog
 
 | Version | Date | Notes |
 |---------|---|---|
+| v2.5.1  | 2026-04-23 | Hardening: `submitLead` accepts FormData/URLSearchParams/HTMLFormElement, coerces FormData strings to numbers/booleans for Zod schema, disables submit button across navigation, GA parsers survive sandboxed-iframe cookie errors. Adds `scripts/test-sdk.mjs` harness (28 assertions) |
+| v2.5.0  | 2026-04-23 | `ScaleSDK.submitLead(fields)` imperative API and `<form data-scale-form="lead">` declarative binder — SDK owns `POST /api/leads` URL, body shape, enrichment, error normalization. GA4 identity capture: reads `_ga` / `_ga_<MEASUREMENT_ID>` cookies, attaches `ga_client_id` / `ga_session_id` to `/api/visits` and `/api/leads.metadata`. Single `enrichLeadBody()` shared by the imperative API, declarative binder, and raw `fetch()` interceptor |
+| v2.4.0  | 2026-04-23 | `scale-bootstrap.js` supports `data-funnel` attribute — required for tenants with multiple funnels (e.g. WordPress side-site plus Scale-hosted main funnel); backend endpoint already accepted `&funnel=<slug>` |
 | v2.3.0  | 2026-04-22 | Event catalog support: `scaleTrack()` validates props against `_remoteConfig.event_catalog`, DOM auto-track driven by backend-defined triggers (click, submit, load, scroll, time_on_page) with per-event debounce |
 | v2.2.0  | 2026-04-22 | New `scale-bootstrap.js` one-tag loader (fetches `/api/sdk/tenant-bootstrap`), new `ScaleSDK.healthCheck()` public API, `ONBOARDING.md` integration guide |
 | v2.1.1  | 2026-04-22 | First release with minified bundles + SRI; automated release flow |
