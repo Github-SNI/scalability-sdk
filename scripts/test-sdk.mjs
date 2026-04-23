@@ -273,6 +273,28 @@ await test('GA IDs from cookies attached to body.metadata', async () => {
   eq(lastReqBody.metadata.ga_session_id, '777');
 });
 
+await test('NO GA cookies → request succeeds, ga_* keys absent (not null/undefined)', async () => {
+  const w = buildEnv({ fetchImpl: mockOk, cookies: '' });
+  const r = await w.ScaleSDK.submitLead({ email: 'a@b.com', phone: '5551234567', first_name: 'A', last_name: 'B', state: 'FL', zip: '33101' });
+  assert(r.ok === true, 'should succeed without GA cookies');
+  assert(!('ga_client_id' in lastReqBody.metadata), 'ga_client_id should not appear in metadata when cookie is absent');
+  assert(!('ga_session_id' in lastReqBody.metadata), 'ga_session_id should not appear in metadata when cookie is absent');
+});
+
+await test('Partial GA cookies (only _ga, no _ga_*) → session_id absent, client_id present', async () => {
+  const w = buildEnv({ fetchImpl: mockOk, cookies: '_ga=GA1.1.abc.def' });
+  await w.ScaleSDK.submitLead({ email: 'a@b.com', phone: '5551234567', first_name: 'A', last_name: 'B', state: 'FL', zip: '33101' });
+  eq(lastReqBody.metadata.ga_client_id, 'abc.def');
+  assert(!('ga_session_id' in lastReqBody.metadata), 'ga_session_id should be absent when _ga_* is missing');
+});
+
+await test('document.cookie throws SecurityError (sandbox iframe) → request still succeeds', async () => {
+  const w = buildEnv({ fetchImpl: mockOk });
+  Object.defineProperty(w.document, 'cookie', { get() { throw new Error('SecurityError'); }, configurable: true });
+  const r = await w.ScaleSDK.submitLead({ email: 'a@b.com', phone: '5551234567', first_name: 'A', last_name: 'B', state: 'FL', zip: '33101' });
+  assert(r.ok === true, 'should succeed even if cookie access throws');
+});
+
 await test('UTMs from URL attached to body.metadata', async () => {
   const w = buildEnv({ fetchImpl: mockOk });
   await w.ScaleSDK.submitLead({ email: 'a@b.com', phone: '5551234567', first_name: 'A', last_name: 'B', state: 'FL', zip: '33101' });
