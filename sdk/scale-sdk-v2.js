@@ -161,6 +161,74 @@
     return Object.keys(result).length > 0 ? result : undefined;
   }
 
+  // ==================== GA4 IDs ====================
+  // GA4 stores client + session IDs in cookies that any page-level script
+  // can read. We extract them for two reasons:
+  //   1. Attach to /api/visits so the backend populates
+  //      visit_attribution.ga_client_id / ga_session_id.
+  //   2. Attach to /api/leads so sales created from these leads can be
+  //      uploaded via the GA4 Measurement Protocol with proper identity.
+  //
+  // Cookie formats:
+  //   _ga               = GA1.1.<client_id>.<timestamp>
+  //   _ga_<MEASUREMENT> = GS1.1.<session_id>.<seq>.<engagement>...
+  // We don't assume a specific measurement id — we scan every _ga_* cookie
+  // and pick the first one with a parseable session_id, falling back to the
+  // SCALE_CONFIG.ga4MeasurementId if present.
+  function readCookie(name) {
+    var prefix = name + '=';
+    var parts = document.cookie.split('; ');
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].indexOf(prefix) === 0) return parts[i].slice(prefix.length);
+    }
+    return '';
+  }
+
+  function getGaClientId() {
+    // _ga value shape: GA1.<n>.<client_id>.<timestamp>
+    // client_id is the 3rd + 4th parts joined — e.g. "123456789.1234567890"
+    var v = readCookie('_ga');
+    if (!v) return undefined;
+    var parts = v.split('.');
+    if (parts.length < 4) return undefined;
+    return parts.slice(2).join('.');
+  }
+
+  function getGaSessionId() {
+    // _ga_<MEASUREMENT> value shape: GS1.<n>.<session_id>.<seq>.<engagement>...
+    var mid = (cfg.ga4MeasurementId || '').replace(/^G-/, '');
+    if (mid) {
+      var direct = readCookie('_ga_' + mid);
+      var parsed = parseGaSession(direct);
+      if (parsed) return parsed;
+    }
+    // Fallback: scan all cookies for any _ga_* with a parseable session_id.
+    var parts = document.cookie.split('; ');
+    for (var i = 0; i < parts.length; i++) {
+      var kv = parts[i];
+      if (kv.indexOf('_ga_') !== 0) continue;
+      var val = kv.slice(kv.indexOf('=') + 1);
+      var p = parseGaSession(val);
+      if (p) return p;
+    }
+    return undefined;
+  }
+
+  function parseGaSession(raw) {
+    if (!raw) return undefined;
+    var bits = raw.split('.');
+    // GS1.<n>.<session_id>.<...>
+    if (bits.length >= 3 && /^\d+$/.test(bits[2])) return bits[2];
+    return undefined;
+  }
+
+  function getGaIds() {
+    return {
+      ga_client_id: getGaClientId(),
+      ga_session_id: getGaSessionId(),
+    };
+  }
+
   // Extract source_id from URL params (supports aliases: source_id, id, source)
   function getSourceId() {
     var params = getURLParams();
@@ -327,6 +395,7 @@
     var session = getOrCreateSession();
     var utmParams = getUTMParams();
     var trackingParams = getTrackingParams();
+    var gaIds = getGaIds();
 
     var payload = cleanObject({
       funnel_id: funnelId,
@@ -342,7 +411,11 @@
       utm_campaign: utmParams.utm_campaign,
       utm_term: utmParams.utm_term,
       utm_content: utmParams.utm_content,
-      params: trackingParams
+      params: trackingParams,
+      // GA4 identity — backend writes to visit_attribution so sales
+      // created for this lead can upload via Measurement Protocol.
+      ga_client_id: gaIds.ga_client_id,
+      ga_session_id: gaIds.ga_session_id,
     });
 
     log('Registering visit:', payload);
@@ -910,9 +983,74 @@
     return '';
   }
 
+  // ==================== Lead Body Enrichment ====================
+  // Single source of truth for everything we auto-attach to /api/leads.
+  // Used both by the fetch interceptor (for plain fetch() calls the client
+  // code makes) and by ScaleSDK.submitLead() (the ergonomic API).
+  //
+  // Mutates and returns `body`. Respects existing values so callers can
+  // override any field by passing it explicitly.
+  //
+  // Fields attached at the top level (match the /api/leads Zod schema):
+  //   - funnel_id (from SCALE_CONFIG.funnelId when missing)
+  //   - funnel_step_id (from SCALE_CONFIG.stepId when missing)
+  //   - session_id (from local session)
+  //   - visit_id (from local session — backend stores it alongside)
+  //   - trusted_form_url (from the TrustedForm hidden field on the page)
+  //
+  // Fields attached inside metadata (backend's leadMetadataSchema is
+  // passthrough, everything is preserved):
+  //   - utm_source / utm_medium / utm_campaign / utm_term / utm_content
+  //   - gclid / fbclid / msclkid (plus ttclid, li_fat_id in params)
+  //   - ga_client_id / ga_session_id (from _ga / _ga_* cookies)
+  //   - landing_page / referrer / user_agent
+  function enrichLeadBody(body) {
+    body = body || {};
+    var sd = getSessionData();
+
+    // Top-level fields
+    if (!body.funnel_id && cfg.funnelId) body.funnel_id = cfg.funnelId;
+    if (sd.session_id && !body.session_id) body.session_id = sd.session_id;
+    if (sd.visit_id && !body.visit_id) body.visit_id = sd.visit_id;
+    if (cfg.stepId && !body.funnel_step_id) body.funnel_step_id = cfg.stepId;
+    if (featureEnabled('trustedForm') && !body.trusted_form_url) {
+      var certUrl = getTrustedFormCertUrl();
+      if (certUrl) body.trusted_form_url = certUrl;
+    }
+
+    // Metadata enrichment — merge non-destructively. The client's own
+    // metadata wins over SDK defaults, so they can override anything.
+    body.metadata = body.metadata || {};
+    var utm = getUTMParams();
+    var tp = getTrackingParams() || {};
+    var ga = getGaIds();
+    var defaults = {
+      utm_source:    utm.utm_source,
+      utm_medium:    utm.utm_medium,
+      utm_campaign:  utm.utm_campaign,
+      utm_term:      utm.utm_term,
+      utm_content:   utm.utm_content,
+      gclid:         tp.gclid,
+      fbclid:        tp.fbclid,
+      msclkid:       tp.msclkid,
+      ga_client_id:  ga.ga_client_id,
+      ga_session_id: ga.ga_session_id,
+      landing_page:  window.location.href,
+      referrer:      document.referrer || undefined,
+      user_agent:    navigator.userAgent,
+    };
+    Object.keys(defaults).forEach(function(k) {
+      if (defaults[k] !== undefined && body.metadata[k] === undefined) {
+        body.metadata[k] = defaults[k];
+      }
+    });
+
+    return body;
+  }
+
   // ==================== Fetch Interceptor ====================
   // Automatically enriches outgoing API calls with session/tracking data:
-  //   POST /api/leads          → session_id, funnel_step_id, trusted_form_url (if trustedForm enabled)
+  //   POST /api/leads          → enrichLeadBody()
   //   POST /api/contacts/public → recaptcha_token (if recaptchaKey configured)
   function initFetchInterceptor() {
     var _fetch = window.fetch;
@@ -924,19 +1062,7 @@
       if (urlStr.indexOf('/api/leads') !== -1 && method === 'POST') {
         try {
           var body = JSON.parse(options.body);
-          var sd = getSessionData();
-          // session_id
-          if (sd.session_id && !body.session_id) body.session_id = sd.session_id;
-          // visit_id
-          if (sd.visit_id && !body.visit_id) body.visit_id = sd.visit_id;
-          // funnel_step_id
-          var stepId = cfg.stepId;
-          if (stepId && !body.funnel_step_id) body.funnel_step_id = stepId;
-          // trusted_form_url
-          if (featureEnabled('trustedForm') && !body.trusted_form_url) {
-            var certUrl = getTrustedFormCertUrl();
-            if (certUrl) body.trusted_form_url = certUrl;
-          }
+          enrichLeadBody(body);
           options = Object.assign({}, options, { body: JSON.stringify(body) });
         } catch(e) {}
       }
@@ -1242,6 +1368,200 @@
     });
   }
 
+  // ==================== submitLead — ergonomic lead POST ====================
+  // Wraps POST /api/leads so the client code only has to pass form fields.
+  // The SDK attaches funnel_id, session/visit IDs, UTMs, click IDs, GA IDs,
+  // and trusted_form_url automatically.
+  //
+  // Usage:
+  //   const result = await ScaleSDK.submitLead({
+  //     email, phone, first_name, last_name, state, zip,
+  //     // Any optional lead field is accepted and forwarded.
+  //     // Custom fields go in `metadata` and are preserved as-is.
+  //   });
+  //   if (result.ok) location = '/thank-you';
+  //   else showErrors(result.errors);
+  //
+  // Returns (never throws — network failures become { ok:false }):
+  //   { ok: true,  status, leadId, response }
+  //   { ok: false, status, errors: [{ field, message }], response }
+  var LEAD_REQUIRED_FIELDS = ['email', 'phone', 'first_name', 'last_name', 'state', 'zip'];
+
+  function validateLeadFields(fields) {
+    var errors = [];
+    LEAD_REQUIRED_FIELDS.forEach(function(f) {
+      var v = fields[f];
+      if (v === undefined || v === null || String(v).trim() === '') {
+        errors.push({ field: f, message: f + ' is required' });
+      }
+    });
+    if (fields.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(fields.email))) {
+      errors.push({ field: 'email', message: 'invalid email format' });
+    }
+    if (fields.phone && String(fields.phone).replace(/\D/g, '').length < 10) {
+      errors.push({ field: 'phone', message: 'phone must have at least 10 digits' });
+    }
+    if (fields.state && String(fields.state).trim().length !== 2) {
+      errors.push({ field: 'state', message: 'state must be 2 characters (e.g. FL)' });
+    }
+    if (fields.zip && String(fields.zip).replace(/\D/g, '').length < 5) {
+      errors.push({ field: 'zip', message: 'zip must have at least 5 digits' });
+    }
+    return errors;
+  }
+
+  // Partition fields into `data`, `metadata`, and top-level extras so the
+  // backend Zod schema accepts them. Everything not in the known top-level
+  // keys goes into `data` if it looks like a lead field, else `metadata`.
+  var LEAD_DATA_KNOWN = {
+    email:1, phone:1, first_name:1, last_name:1, state:1, zip:1,
+    address:1, city:1, dob:1, age:1, gender:1,
+    insurance_type:1, coverage_type:1, current_coverage:1,
+  };
+  var LEAD_TOP_LEVEL = { funnel_id:1, funnel_step_id:1, session_id:1,
+    trusted_form_token:1, trusted_form_url:1, data:1, metadata:1 };
+
+  function shapeLeadBody(fields) {
+    var body = { data: {}, metadata: {} };
+    Object.keys(fields).forEach(function(k) {
+      var v = fields[k];
+      if (v === undefined || v === null) return;
+      if (LEAD_TOP_LEVEL[k]) {
+        // If caller already built data/metadata, merge them.
+        if (k === 'data' || k === 'metadata') {
+          Object.keys(v || {}).forEach(function(ik) { body[k][ik] = v[ik]; });
+        } else {
+          body[k] = v;
+        }
+      } else if (LEAD_DATA_KNOWN[k]) {
+        body.data[k] = v;
+      } else {
+        // Unknown fields land in metadata (backend schema is passthrough).
+        body.metadata[k] = v;
+      }
+    });
+    return body;
+  }
+
+  function submitLead(fields, opts) {
+    opts = opts || {};
+    fields = fields || {};
+
+    var skipValidation = opts.skipClientValidation === true;
+    if (!skipValidation) {
+      var preErrors = validateLeadFields(fields);
+      if (preErrors.length) {
+        return Promise.resolve({ ok: false, status: 0, errors: preErrors, response: null });
+      }
+    }
+
+    var body = shapeLeadBody(fields);
+    enrichLeadBody(body); // attaches IDs + metadata defaults
+
+    if (!body.funnel_id) {
+      return Promise.resolve({
+        ok: false, status: 0,
+        errors: [{ field: 'funnel_id', message: 'SCALE_CONFIG.funnelId is not set' }],
+        response: null,
+      });
+    }
+
+    return fetchWithTimeout(apiBase + '/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }, 10000).then(function(res) {
+      return res.json().then(function(json) { return { res: res, json: json }; })
+        .catch(function() { return { res: res, json: null }; });
+    }).then(function(out) {
+      var res = out.res, json = out.json;
+      if (res.ok) {
+        var leadId = json && (json.id || (json.data && json.data.id));
+        // Fire form_submit event so tenants get conversion tracking for free.
+        try { scaleTrack('form_submit', { lead_id: leadId || undefined }); } catch (e) {}
+        return { ok: true, status: res.status, leadId: leadId || null, response: json };
+      }
+      var errs = [];
+      if (json && Array.isArray(json.errors)) {
+        errs = json.errors.map(function(e) {
+          return { field: (e.path && e.path.join ? e.path.join('.') : e.field) || null, message: e.message || String(e) };
+        });
+      } else if (json && json.message) {
+        errs = [{ field: null, message: json.message }];
+      } else {
+        errs = [{ field: null, message: 'HTTP ' + res.status }];
+      }
+      return { ok: false, status: res.status, errors: errs, response: json };
+    }).catch(function(err) {
+      return { ok: false, status: 0,
+        errors: [{ field: null, message: (err && err.message) || 'network error' }],
+        response: null };
+    });
+  }
+
+  // ==================== data-scale-form — declarative binder ================
+  // Auto-binds any <form data-scale-form="lead"> on the page:
+  //   - Reads inputs by `name` attribute and maps them to submitLead().
+  //   - data-success-url="/thank-you"         → redirects on ok
+  //   - data-on-success="globalFnName"        → or calls window[globalFnName](result)
+  //   - data-on-error="globalFnName"          → called on failure
+  //   - data-reset-on-success="true"          → resets the form on ok
+  //   - data-skip-validation="true"           → let the backend be the judge
+  //
+  // Any `name` not in the known lead field set still goes through — unknown
+  // fields land in metadata. So extra custom fields (e.g. "coverage_amount")
+  // are preserved without touching the SDK.
+  function bindScaleForms(root) {
+    (root || document).querySelectorAll('form[data-scale-form="lead"]').forEach(function(form) {
+      if (form.__scaleFormBound) return;
+      form.__scaleFormBound = true;
+      form.addEventListener('submit', handleScaleFormSubmit);
+    });
+  }
+
+  function handleScaleFormSubmit(e) {
+    var form = e.currentTarget;
+    e.preventDefault();
+
+    var fields = {};
+    // FormData preserves unchecked checkbox/radio semantics correctly.
+    var fd = new FormData(form);
+    fd.forEach(function(value, key) {
+      // Duplicate keys (multi-select, checkbox groups) become arrays.
+      if (fields[key] !== undefined) {
+        if (!Array.isArray(fields[key])) fields[key] = [fields[key]];
+        fields[key].push(value);
+      } else {
+        fields[key] = value;
+      }
+    });
+
+    var onSuccessName = form.getAttribute('data-on-success');
+    var onErrorName   = form.getAttribute('data-on-error');
+    var successUrl    = form.getAttribute('data-success-url');
+    var resetOnOk     = form.getAttribute('data-reset-on-success') === 'true';
+    var skipValidate  = form.getAttribute('data-skip-validation') === 'true';
+
+    // Disable submit button while in-flight to prevent double posts.
+    var submitBtn = form.querySelector('[type="submit"]');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset.__scalePrev = submitBtn.innerText; }
+
+    submitLead(fields, { skipClientValidation: skipValidate }).then(function(result) {
+      if (submitBtn) { submitBtn.disabled = false; }
+
+      if (result.ok) {
+        if (resetOnOk) form.reset();
+        var fn = onSuccessName && window[onSuccessName];
+        if (typeof fn === 'function') { try { fn(result, form); } catch (err) { log('on-success threw', err); } }
+        if (successUrl) window.location = successUrl;
+      } else {
+        var fn2 = onErrorName && window[onErrorName];
+        if (typeof fn2 === 'function') { try { fn2(result, form); } catch (err) { log('on-error threw', err); } }
+        else if (debug) console.warn('[ScaleSDK] lead submit failed', result);
+      }
+    });
+  }
+
   // ==================== Initialization ====================
   function init() {
     log('Initializing SDK v2', {
@@ -1276,6 +1596,17 @@
     initVisitRegistration();
     initPhoneFetcher();
     initTrustedForm();
+
+    // Bind any <form data-scale-form="lead"> present on the page. Also
+    // re-scan when the DOM mutates so dynamically-injected forms (SPAs,
+    // Elementor live editor, etc.) get picked up without manual wiring.
+    onReady(function() { bindScaleForms(document); });
+    if (typeof MutationObserver === 'function') {
+      try {
+        new MutationObserver(function() { bindScaleForms(document); })
+          .observe(document.documentElement, { childList: true, subtree: true });
+      } catch (e) { /* ignore — not worth blocking init */ }
+    }
 
     log('SDK v2 initialized');
   }
@@ -1381,6 +1712,20 @@
 
     // Track a custom event → POST /api/events
     track: scaleTrack,
+
+    // Ergonomic lead posting — wraps POST /api/leads so client code only
+    // passes form fields. See the `submitLead` implementation above.
+    submitLead: submitLead,
+
+    // Re-scan the document for <form data-scale-form="lead"> tags. Called
+    // automatically on init + MutationObserver; exposed for manual use
+    // when needed (e.g. after a custom DOM insertion hook).
+    bindForms: bindScaleForms,
+
+    // GA4 identity — useful during onboarding to confirm _ga / _ga_* are
+    // actually present on the page. Returns { ga_client_id, ga_session_id }
+    // (undefined fields when cookies are missing).
+    getGaIds: getGaIds,
 
     // Verify the SDK's configuration and backend reachability without
     // producing side-effects (no visits written, no events fired).
