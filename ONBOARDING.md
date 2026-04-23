@@ -21,6 +21,18 @@ Optional per tenant:
 - GTM container ID (they provide theirs)
 - GA4 measurement ID (they provide theirs)
 
+### Do I need funnel steps / pages?
+
+**No — not for self-hosted sites** (WordPress, Webflow, custom, etc.). The
+SDK only requires the parent **Funnel** record (for `funnel_id` + `funnel_slug`).
+Individual pages on the client's site don't need matching `funnel_steps` rows —
+visits are tracked per `session_id` and carry `page_url` for per-page analytics.
+
+`funnel_steps` records (and the `stepId` field in `SCALE_CONFIG`) are only
+required when the pages themselves are **hosted by the SaaS** (Scale-rendered
+funnels) — each step then represents a page Scale serves. Client-hosted sites
+own their own routing and can skip this entirely.
+
 ## 2. Backend API endpoints
 
 The SDK calls these — each must be implemented and CORS-enabled for the client's domain(s):
@@ -87,13 +99,19 @@ Client pastes exactly ONE tag. All config comes from the backend:
 ```html
 <script src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2/sdk/scale-bootstrap.min.js"
         data-tenant="acme"
+        data-funnel="main"
         data-api="https://api.scaledigital.com"
         defer></script>
 ```
 
-Requires `GET /api/sdk/tenant-bootstrap?slug=<tenant>` to be implemented (§6). The loader:
-1. Reads `data-tenant` and `data-api` from its own tag.
-2. Fetches `{api}/api/sdk/tenant-bootstrap?slug={tenant}`.
+`data-funnel` is optional. If omitted, the backend picks the oldest
+active funnel for the tenant — fine for single-funnel tenants. Set it
+when the tenant has multiple funnels (e.g. a WordPress side-site plus
+a Scale-hosted main funnel) so the SDK targets the right one.
+
+Requires `GET /api/sdk/tenant-bootstrap?slug=<tenant>[&funnel=<slug>]` to be implemented (§6). The loader:
+1. Reads `data-tenant`, `data-funnel` (optional), and `data-api` from its own tag.
+2. Fetches `{api}/api/sdk/tenant-bootstrap?slug={tenant}` (+ `&funnel=…` if set).
 3. Assigns the response `data` to `window.SCALE_CONFIG`.
 4. Injects `scale-analytics.min.js` and `scale-sdk-v2.min.js` from the same CDN version as the bootstrap.
 
@@ -212,7 +230,7 @@ If `apiBaseUrl` is omitted from the response, the bootstrap loader reuses the `d
 | `recaptchaKey` | Optional | string | reCAPTCHA v3 site key |
 | `siteId` | Optional | string | For multi-site tenants |
 | `vertical` | Optional | string | Vertical type (industry) — forwarded to analytics |
-| `stepId` | Optional | string | Funnel step ID on this specific page |
+| `stepId` | Optional | string | Only for Scale-hosted funnels (one `funnel_steps` row per page). Leave unset for WordPress / self-hosted sites. |
 | `features.visits` | Optional | boolean | Default `true`. Set `false` to disable visit tracking. |
 | `features.phone` | Optional | boolean | Default `true`. Disables DNI. |
 | `features.trustedForm` | Optional | boolean | Default `true`. Disables TrustedForm. |

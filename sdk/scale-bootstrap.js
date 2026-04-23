@@ -1,4 +1,4 @@
-// Scale Digital - Bootstrap Loader v1.0.0
+// Scale Digital - Bootstrap Loader v1.1.0
 // One-tag install: fetches per-tenant config from the backend, sets
 // window.SCALE_CONFIG, then loads scale-analytics.js and scale-sdk-v2.js.
 //
@@ -6,14 +6,20 @@
 //
 //   <script src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2/sdk/scale-bootstrap.min.js"
 //           data-tenant="your-tenant-slug"
+//           data-funnel="optional-funnel-slug"
 //           data-api="https://api.example.com"
 //           defer></script>
 //
 // Requires the backend to implement:
-//   GET {api}/api/sdk/tenant-bootstrap?slug={tenant}
+//   GET {api}/api/sdk/tenant-bootstrap?slug={tenant}[&funnel={funnel}]
 //     → { data: { funnelId, funnelSlug, apiBaseUrl, tenantKey,
 //                  gtmId?, ga4MeasurementId?, recaptchaKey?,
 //                  features?, siteId?, vertical? } }
+//
+// data-funnel is optional. If omitted, the backend picks the oldest
+// active funnel for the tenant. Set it on tenants with multiple funnels
+// (e.g. WordPress side-site vs main Scale-hosted funnel) to target the
+// right one.
 
 (function() {
   'use strict';
@@ -28,6 +34,7 @@
   }
 
   var tenant = self.getAttribute('data-tenant');
+  var funnel = self.getAttribute('data-funnel');
   var apiBase = self.getAttribute('data-api');
   if (!tenant || !apiBase) {
     console.error('[ScaleBootstrap] data-tenant and data-api attributes are required');
@@ -36,7 +43,10 @@
 
   var cdnBase = self.src.replace(/\/scale-bootstrap(\.min)?\.js.*$/, '');
 
-  fetch(apiBase + '/api/sdk/tenant-bootstrap?slug=' + encodeURIComponent(tenant), {
+  var bootstrapUrl = apiBase + '/api/sdk/tenant-bootstrap?slug=' + encodeURIComponent(tenant);
+  if (funnel) bootstrapUrl += '&funnel=' + encodeURIComponent(funnel);
+
+  fetch(bootstrapUrl, {
     method: 'GET',
     credentials: 'include'
   })
