@@ -175,9 +175,19 @@
   // We don't assume a specific measurement id — we scan every _ga_* cookie
   // and pick the first one with a parseable session_id, falling back to the
   // SCALE_CONFIG.ga4MeasurementId if present.
+  // Safe cookie accessor — document.cookie throws SecurityError in
+  // sandboxed iframes without allow-same-origin, and can be undefined in
+  // some embedded contexts (service workers, AMP viewers). We default to
+  // empty string so consumers can treat it like "no cookies" without
+  // having to wrap every call site.
+  function readAllCookies() {
+    try { return (typeof document !== 'undefined' && document.cookie) || ''; }
+    catch (e) { return ''; }
+  }
+
   function readCookie(name) {
     var prefix = name + '=';
-    var parts = document.cookie.split('; ');
+    var parts = readAllCookies().split('; ');
     for (var i = 0; i < parts.length; i++) {
       if (parts[i].indexOf(prefix) === 0) return parts[i].slice(prefix.length);
     }
@@ -187,31 +197,35 @@
   function getGaClientId() {
     // _ga value shape: GA1.<n>.<client_id>.<timestamp>
     // client_id is the 3rd + 4th parts joined — e.g. "123456789.1234567890"
-    var v = readCookie('_ga');
-    if (!v) return undefined;
-    var parts = v.split('.');
-    if (parts.length < 4) return undefined;
-    return parts.slice(2).join('.');
+    try {
+      var v = readCookie('_ga');
+      if (!v) return undefined;
+      var parts = v.split('.');
+      if (parts.length < 4) return undefined;
+      return parts.slice(2).join('.');
+    } catch (e) { return undefined; }
   }
 
   function getGaSessionId() {
     // _ga_<MEASUREMENT> value shape: GS1.<n>.<session_id>.<seq>.<engagement>...
-    var mid = (cfg.ga4MeasurementId || '').replace(/^G-/, '');
-    if (mid) {
-      var direct = readCookie('_ga_' + mid);
-      var parsed = parseGaSession(direct);
-      if (parsed) return parsed;
-    }
-    // Fallback: scan all cookies for any _ga_* with a parseable session_id.
-    var parts = document.cookie.split('; ');
-    for (var i = 0; i < parts.length; i++) {
-      var kv = parts[i];
-      if (kv.indexOf('_ga_') !== 0) continue;
-      var val = kv.slice(kv.indexOf('=') + 1);
-      var p = parseGaSession(val);
-      if (p) return p;
-    }
-    return undefined;
+    try {
+      var mid = (cfg.ga4MeasurementId || '').replace(/^G-/, '');
+      if (mid) {
+        var direct = readCookie('_ga_' + mid);
+        var parsed = parseGaSession(direct);
+        if (parsed) return parsed;
+      }
+      // Fallback: scan all cookies for any _ga_* with a parseable session_id.
+      var parts = readAllCookies().split('; ');
+      for (var i = 0; i < parts.length; i++) {
+        var kv = parts[i];
+        if (kv.indexOf('_ga_') !== 0) continue;
+        var val = kv.slice(kv.indexOf('=') + 1);
+        var p = parseGaSession(val);
+        if (p) return p;
+      }
+      return undefined;
+    } catch (e) { return undefined; }
   }
 
   function parseGaSession(raw) {
@@ -1418,8 +1432,55 @@
     address:1, city:1, dob:1, age:1, gender:1,
     insurance_type:1, coverage_type:1, current_coverage:1,
   };
+  var LEAD_DATA_NUMERIC = { age:1 };
+  var LEAD_DATA_BOOLEAN = { current_coverage:1 };
   var LEAD_TOP_LEVEL = { funnel_id:1, funnel_step_id:1, session_id:1,
     trusted_form_token:1, trusted_form_url:1, data:1, metadata:1 };
+
+  // Normalize any shape the caller might hand us into a plain object:
+  //   - FormData               (from <form> submit — everyone uses this)
+  //   - URLSearchParams
+  //   - HTMLFormElement        (convenience: submitLead(formEl))
+  //   - plain object           (the obvious case)
+  // Returns null if we can't extract anything sensible.
+  function normalizeLeadFields(input) {
+    if (!input) return null;
+    var out = {};
+    if (typeof FormData !== 'undefined' && input instanceof FormData) {
+      input.forEach(function(v, k) { out[k] = v; });
+      return out;
+    }
+    if (typeof URLSearchParams !== 'undefined' && input instanceof URLSearchParams) {
+      input.forEach(function(v, k) { out[k] = v; });
+      return out;
+    }
+    if (typeof HTMLFormElement !== 'undefined' && input instanceof HTMLFormElement) {
+      return normalizeLeadFields(new FormData(input));
+    }
+    if (typeof input === 'object') {
+      Object.keys(input).forEach(function(k) { out[k] = input[k]; });
+      return out;
+    }
+    return null;
+  }
+
+  // Coerce known-typed fields so FormData (always strings) still satisfies
+  // the backend Zod schema. Silent no-op on values that don't coerce —
+  // Zod will return a precise error and we surface it in `errors[]`.
+  function coerceLeadValue(key, value) {
+    if (LEAD_DATA_NUMERIC[key]) {
+      var n = Number(value);
+      return isNaN(n) ? value : n;
+    }
+    if (LEAD_DATA_BOOLEAN[key]) {
+      if (value === true || value === false) return value;
+      var s = String(value).toLowerCase();
+      if (s === 'true' || s === '1' || s === 'on' || s === 'yes') return true;
+      if (s === 'false' || s === '0' || s === 'off' || s === 'no' || s === '') return false;
+      return value;
+    }
+    return value;
+  }
 
   function shapeLeadBody(fields) {
     var body = { data: {}, metadata: {} };
@@ -1434,7 +1495,7 @@
           body[k] = v;
         }
       } else if (LEAD_DATA_KNOWN[k]) {
-        body.data[k] = v;
+        body.data[k] = coerceLeadValue(k, v);
       } else {
         // Unknown fields land in metadata (backend schema is passthrough).
         body.metadata[k] = v;
@@ -1445,17 +1506,22 @@
 
   function submitLead(fields, opts) {
     opts = opts || {};
-    fields = fields || {};
+    var normalized = normalizeLeadFields(fields);
+    if (!normalized) {
+      return Promise.resolve({ ok: false, status: 0,
+        errors: [{ field: null, message: 'submitLead: fields must be an object, FormData, URLSearchParams, or HTMLFormElement' }],
+        response: null });
+    }
 
     var skipValidation = opts.skipClientValidation === true;
     if (!skipValidation) {
-      var preErrors = validateLeadFields(fields);
+      var preErrors = validateLeadFields(normalized);
       if (preErrors.length) {
         return Promise.resolve({ ok: false, status: 0, errors: preErrors, response: null });
       }
     }
 
-    var body = shapeLeadBody(fields);
+    var body = shapeLeadBody(normalized);
     enrichLeadBody(body); // attaches IDs + metadata defaults
 
     if (!body.funnel_id) {
@@ -1478,7 +1544,11 @@
       if (res.ok) {
         var leadId = json && (json.id || (json.data && json.data.id));
         // Fire form_submit event so tenants get conversion tracking for free.
-        try { scaleTrack('form_submit', { lead_id: leadId || undefined }); } catch (e) {}
+        // Opt out via opts.skipAutoTrack or fields._skipAutoTrack when the
+        // tenant wires a different conversion pipeline (GTM, manual track).
+        if (opts.skipAutoTrack !== true && normalized._skipAutoTrack !== true) {
+          try { scaleTrack('form_submit', { lead_id: leadId || undefined }); } catch (e) {}
+        }
         return { ok: true, status: res.status, leadId: leadId || null, response: json };
       }
       var errs = [];
@@ -1541,13 +1611,20 @@
     var successUrl    = form.getAttribute('data-success-url');
     var resetOnOk     = form.getAttribute('data-reset-on-success') === 'true';
     var skipValidate  = form.getAttribute('data-skip-validation') === 'true';
+    var skipAutoTrack = form.getAttribute('data-auto-track') === 'false';
 
     // Disable submit button while in-flight to prevent double posts.
     var submitBtn = form.querySelector('[type="submit"]');
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset.__scalePrev = submitBtn.innerText; }
+    if (submitBtn) submitBtn.disabled = true;
 
-    submitLead(fields, { skipClientValidation: skipValidate }).then(function(result) {
-      if (submitBtn) { submitBtn.disabled = false; }
+    submitLead(fields, {
+      skipClientValidation: skipValidate,
+      skipAutoTrack: skipAutoTrack,
+    }).then(function(result) {
+      // Re-enable the button only on non-redirect paths. If we're about to
+      // navigate away (successUrl), leave it disabled so the user can't
+      // click twice during the in-flight unload.
+      if (submitBtn && !(result.ok && successUrl)) submitBtn.disabled = false;
 
       if (result.ok) {
         if (resetOnOk) form.reset();
