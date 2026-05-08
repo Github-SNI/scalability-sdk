@@ -42,8 +42,8 @@ The SDK is served globally via [jsDelivr](https://www.jsdelivr.com/) directly fr
     features: { visits: true, phone: true, trustedForm: true }
   };
 </script>
-<script src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.5/sdk/scale-analytics.min.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.5/sdk/scale-sdk-v2.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.6/sdk/scale-analytics.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.6/sdk/scale-sdk-v2.min.js" defer></script>
 ```
 <!-- CDN-SIMPLE-SNIPPET:END -->
 
@@ -75,12 +75,12 @@ For clients in regulated industries or with strict change-management policies, p
   };
 </script>
 <script
-  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.5.1/sdk/scale-analytics.js"
-  integrity="sha384-ATdZTGsaW1/CfOKOyZNcBcyrTaCXtdDI7JnHTWbgh5sKrz3RSqGYY4xlTQuYFMAL"
+  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.6.0/sdk/scale-analytics.js"
+  integrity="sha384-KLD8BOBc8evpWu1i45d2C0OuKPksa26tDBpwVTjwGgje1wpxQkzuDgCWwATdUNG1"
   crossorigin="anonymous"></script>
 <script
-  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.5.1/sdk/scale-sdk-v2.js"
-  integrity="sha384-syoUyhUnA6jfRCRs5axDOp1aivYEyeLOKs+6+OZPWoigkqF9rhrrg9hid/DbSnfe"
+  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.6.0/sdk/scale-sdk-v2.js"
+  integrity="sha384-vwM1cdrvLiUuDC4rkCAQFsBPe8PUWAlt8Yl4WBSHWZf4lSKGQ+hlHmoeP3uX2kai"
   crossorigin="anonymous"
   defer></script>
 ```
@@ -91,12 +91,12 @@ Minified + SRI variant:
 <!-- CDN-MIN-SNIPPET:START -->
 ```html
 <script
-  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.5.1/sdk/scale-analytics.min.js"
-  integrity="sha384-C95tlgQf4ON9fdiOmJ1B1vee/4r8hmIlyNSODV1sBlXy2UBnhD5f9IS/IPdB1l2z"
+  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.6.0/sdk/scale-analytics.min.js"
+  integrity="sha384-Jjq4UQQCYsv6RwzpYvqmLYel5j/RNrSIAJuL0/0PdQo+wozk9k9bbSibRGKKwVOK"
   crossorigin="anonymous"></script>
 <script
-  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.5.1/sdk/scale-sdk-v2.min.js"
-  integrity="sha384-gKGHPiZWPpMtfjuWg7Da3ltWhOV5v7FrFgYrXhnn0gbZxCpqM9vahNifFJYSkLbf"
+  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.6.0/sdk/scale-sdk-v2.min.js"
+  integrity="sha384-DT+fzS3c/pJoi/8SiZjkznbMqGhjn1e3Dr+AzIwlQqw4sqF+wyR8poGnnPPFcC6Q"
   crossorigin="anonymous"
   defer></script>
 ```
@@ -142,12 +142,12 @@ https://github.com/Github-SNI/scalability-sdk/releases/latest
 
 ### Specific version
 ```
-https://github.com/Github-SNI/scalability-sdk/releases/download/v2.5.1/Scalability-SDK-v2.5.1.zip
+https://github.com/Github-SNI/scalability-sdk/releases/download/v2.6.0/Scalability-SDK-v2.6.0.zip
 ```
 
 ### Individual file
 ```
-https://github.com/Github-SNI/scalability-sdk/releases/download/v2.5.1/scale-sdk-v2.js
+https://github.com/Github-SNI/scalability-sdk/releases/download/v2.6.0/scale-sdk-v2.js
 ```
 
 ## Publishing a new release
