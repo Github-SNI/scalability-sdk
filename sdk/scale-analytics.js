@@ -1,12 +1,62 @@
-// Scale Digital - Analytics SDK
+// Scale Digital - Analytics SDK v2.6.0
 // Centralized analytics: dataLayer, GTM loading, GA4 events, auto-tracking, performance monitoring
-// Usage: Set window.SCALE_CONFIG before loading, or use legacy window.GTM_ID
 //
-// <script>window.SCALE_CONFIG = { gtmId: 'GTM-XXXXXXX', ga4MeasurementId: 'G-XXXXX' };</script>
-// <script src="/sdk/scale-analytics.js"></script>
+// Usage A — pre-set SCALE_CONFIG (legacy, used by scale-bootstrap):
+//   <script>window.SCALE_CONFIG = { gtmId: 'GTM-XXXXXXX', ga4MeasurementId: 'G-XXXXX' };</script>
+//   <script src="/sdk/scale-analytics.js"></script>
+//
+// Usage B — standalone with data-* attributes (v2.6+):
+//   <script src="/sdk/scale-analytics.js"
+//           data-tenant="your-tenant-slug"
+//           data-funnel="optional-funnel-slug"
+//           data-api="https://api.example.com"></script>
+//
+// In Usage B (or whenever SCALE_CONFIG lacks funnelId/funnelSlug at load
+// time), the SDK fetches /api/sdk/tenant-bootstrap itself and merges the
+// result into SCALE_CONFIG before booting. Site-set values in SCALE_CONFIG
+// always win over fetched defaults.
 
 (function() {
   'use strict';
+
+  // ==================== Auto-bootstrap (v2.6+) ====================
+  // If SCALE_CONFIG is missing funnelId/funnelSlug (e.g. analytics was loaded
+  // standalone without scale-bootstrap, or the bootstrap fetch failed), read
+  // data-tenant/data-funnel/data-api from this <script> tag and fetch
+  // /api/sdk/tenant-bootstrap. Result merges into SCALE_CONFIG; existing
+  // SCALE_CONFIG values take precedence.
+  function __ensureAnalyticsConfig(cb) {
+    var prior = window.SCALE_CONFIG;
+    if (prior && (prior.funnelId || prior.funnelSlug)) return cb();
+    var script = document.currentScript;
+    if (!script) {
+      var all = document.getElementsByTagName('script');
+      for (var i = all.length - 1; i >= 0; i--) {
+        if (/scale-analytics(\.min)?\.js/.test(all[i].src)) { script = all[i]; break; }
+      }
+    }
+    var tenant = script && script.getAttribute('data-tenant');
+    var funnel = script && script.getAttribute('data-funnel');
+    var apiBase = script && script.getAttribute('data-api');
+    if (!apiBase || !tenant) return cb();
+    var url = apiBase + '/api/sdk/tenant-bootstrap?slug=' + encodeURIComponent(tenant);
+    if (funnel) url += '&funnel=' + encodeURIComponent(funnel);
+    fetch(url, { method: 'GET', credentials: 'include' })
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(body) {
+        var data = (body && body.data) || {};
+        if (!data.apiBaseUrl) data.apiBaseUrl = apiBase;
+        var existing = window.SCALE_CONFIG || {};
+        var merged = {};
+        for (var k in data) if (Object.prototype.hasOwnProperty.call(data, k)) merged[k] = data[k];
+        for (var k2 in existing) if (Object.prototype.hasOwnProperty.call(existing, k2)) merged[k2] = existing[k2];
+        window.SCALE_CONFIG = merged;
+      })
+      .catch(function(err) { if (console && console.error) console.error('[ScaleAnalytics] auto-bootstrap failed:', err); })
+      .then(cb);
+  }
+
+  function __runScaleAnalytics() {
 
   // ==================== Config ====================
   var cfg = window.SCALE_CONFIG || {};
@@ -458,4 +508,7 @@
 
   } // end performanceEnabled
 
+  } // end __runScaleAnalytics
+
+  __ensureAnalyticsConfig(__runScaleAnalytics);
 })();

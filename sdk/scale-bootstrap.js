@@ -1,6 +1,11 @@
-// Scale Digital - Bootstrap Loader v1.1.0
+// Scale Digital - Bootstrap Loader v2.6.0
 // One-tag install: fetches per-tenant config from the backend, sets
 // window.SCALE_CONFIG, then loads scale-analytics.js and scale-sdk-v2.js.
+//
+// As of v2.6, the injected SDK <script> tags also receive data-tenant /
+// data-funnel / data-api attributes so each SDK can self-bootstrap when
+// SCALE_CONFIG is missing or incomplete (e.g. SDKs dropped on a page
+// without the bootstrap).
 //
 // Usage — paste this single tag in <head>:
 //
@@ -71,6 +76,11 @@
     s.src = src;
     if (isDefer) s.defer = true;
     s.crossOrigin = 'anonymous';
+    // Propagate identity to the SDK so it can self-bootstrap if SCALE_CONFIG
+    // ends up missing or incomplete (e.g. bootstrap fetch failed partially).
+    s.setAttribute('data-tenant', tenant);
+    if (funnel) s.setAttribute('data-funnel', funnel);
+    s.setAttribute('data-api', apiBase);
     document.head.appendChild(s);
   }
 })();
