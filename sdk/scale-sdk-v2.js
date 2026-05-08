@@ -1,4 +1,4 @@
-// Scale Digital - SDK v2.6.0
+// Scale Digital - SDK v2.6.1
 // Core SDK for the new SaaS backend (funnels, sessions, tenants)
 // Multi-site infrastructure: session, cookie (SSR), visit registration, phone DNI, TrustedForm
 // Everything else (forms, validation, analytics, content rendering) is site responsibility
@@ -22,7 +22,7 @@
 //           data-api="https://api.example.com" defer></script>
 //
 // In Usage B (or whenever SCALE_CONFIG lacks funnelId/funnelSlug at load
-// time), the SDK fetches /api/sdk/tenant-bootstrap itself and merges the
+// time), the SDK fetches /sdk/tenant-bootstrap itself and merges the
 // result into SCALE_CONFIG before booting. Site-set values in SCALE_CONFIG
 // always win over fetched defaults.
 //
@@ -37,7 +37,7 @@
   // If SCALE_CONFIG is missing funnelId/funnelSlug (e.g. the SDK was loaded
   // standalone without scale-bootstrap, or the bootstrap fetch failed), read
   // data-tenant/data-funnel/data-api from this <script> tag and fetch
-  // /api/sdk/tenant-bootstrap. Result merges into SCALE_CONFIG; existing
+  // /sdk/tenant-bootstrap. Result merges into SCALE_CONFIG; existing
   // SCALE_CONFIG values take precedence.
   function __ensureSDKConfig(cb) {
     var prior = window.SCALE_CONFIG;
@@ -53,7 +53,7 @@
     var funnel = script && script.getAttribute('data-funnel');
     var apiBase = script && script.getAttribute('data-api');
     if (!apiBase || !tenant) return cb();
-    var url = apiBase + '/api/sdk/tenant-bootstrap?slug=' + encodeURIComponent(tenant);
+    var url = apiBase + '/sdk/tenant-bootstrap?slug=' + encodeURIComponent(tenant);
     if (funnel) url += '&funnel=' + encodeURIComponent(funnel);
     fetch(url, { method: 'GET', credentials: 'include' })
       .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -82,7 +82,7 @@
   var debug = cfg.debug || false;
   var apiBase = cfg.apiBaseUrl || '';
   var tenantKey = cfg.tenantKey || cfg.tenantSlug || null; // slug used for remote-config lookup
-  var _remoteConfig = null; // populated async from /api/sdk/config; may stay null
+  var _remoteConfig = null; // populated async from /sdk/config; may stay null
 
   function featureEnabled(name, defaultVal) {
     // Remote config can override site-level features. Priority:
@@ -208,9 +208,9 @@
   // ==================== GA4 IDs ====================
   // GA4 stores client + session IDs in cookies that any page-level script
   // can read. We extract them for two reasons:
-  //   1. Attach to /api/visits so the backend populates
+  //   1. Attach to /visits so the backend populates
   //      visit_attribution.ga_client_id / ga_session_id.
-  //   2. Attach to /api/leads so sales created from these leads can be
+  //   2. Attach to /leads so sales created from these leads can be
   //      uploaded via the GA4 Measurement Protocol with proper identity.
   //
   // Cookie formats:
@@ -478,7 +478,7 @@
 
     log('Registering visit:', payload);
 
-    var visitUrl = apiBase + '/api/visits';
+    var visitUrl = apiBase + '/visits';
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       visitUrl += '?skip_bh=true';
     }
@@ -512,7 +512,7 @@
         if (cfg.onVisitRegistered) cfg.onVisitRegistered(result.data);
 
         // If visit response includes phone (backend assigned it during visit registration),
-        // populate state and display immediately — no separate /api/calls/phone/assign needed
+        // populate state and display immediately — no separate /calls/phone/assign needed
         var visitPhone = result.data.phone;
         if (visitPhone && visitPhone.phone_number) {
           _phoneState.phoneNumber = visitPhone.phone_number;
@@ -566,7 +566,7 @@
       });
       if (navigator.sendBeacon) {
         var blob = new Blob([payload], { type: 'application/json' });
-        navigator.sendBeacon(apiBase + '/api/visits/' + session.sessionId, blob);
+        navigator.sendBeacon(apiBase + '/visits/' + session.sessionId, blob);
       }
     });
 
@@ -607,7 +607,7 @@
       pages_visited: _visitState.pageViews
     };
 
-    fetchWithTimeout(apiBase + '/api/visits/' + session.sessionId, {
+    fetchWithTimeout(apiBase + '/visits/' + session.sessionId, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -704,7 +704,7 @@
 
     log('Fetching phone number:', payload);
 
-    return fetchWithTimeout(apiBase + '/api/calls/phone/assign', {
+    return fetchWithTimeout(apiBase + '/calls/phone/assign', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -879,7 +879,7 @@
       return Promise.resolve({ is_open: true, has_schedule: false });
     }
 
-    return fetchWithTimeout(apiBase + '/api/funnels/public/' + slug + '/business-hours', {
+    return fetchWithTimeout(apiBase + '/funnels/public/' + slug + '/business-hours', {
       method: 'GET'
     }, 2000)
     .then(function(res) { return res.json(); })
@@ -1042,14 +1042,14 @@
   }
 
   // ==================== Lead Body Enrichment ====================
-  // Single source of truth for everything we auto-attach to /api/leads.
+  // Single source of truth for everything we auto-attach to /leads.
   // Used both by the fetch interceptor (for plain fetch() calls the client
   // code makes) and by ScaleSDK.submitLead() (the ergonomic API).
   //
   // Mutates and returns `body`. Respects existing values so callers can
   // override any field by passing it explicitly.
   //
-  // Fields attached at the top level (match the /api/leads Zod schema):
+  // Fields attached at the top level (match the /leads Zod schema):
   //   - funnel_id (from SCALE_CONFIG.funnelId when missing)
   //   - funnel_step_id (from SCALE_CONFIG.stepId when missing)
   //   - session_id (from local session)
@@ -1108,8 +1108,8 @@
 
   // ==================== Fetch Interceptor ====================
   // Automatically enriches outgoing API calls with session/tracking data:
-  //   POST /api/leads          → enrichLeadBody()
-  //   POST /api/contacts/public → recaptcha_token (if recaptchaKey configured)
+  //   POST /leads          → enrichLeadBody()
+  //   POST /contacts/public → recaptcha_token (if recaptchaKey configured)
   function initFetchInterceptor() {
     var _fetch = window.fetch;
     window.fetch = function(url, options) {
@@ -1117,7 +1117,7 @@
       var method = options && (options.method || '').toUpperCase();
 
       // Enrich lead submissions
-      if (urlStr.indexOf('/api/leads') !== -1 && method === 'POST') {
+      if (urlStr.indexOf('/leads') !== -1 && method === 'POST') {
         try {
           var body = JSON.parse(options.body);
           enrichLeadBody(body);
@@ -1126,7 +1126,7 @@
       }
 
       // Enrich contact form submissions with reCAPTCHA token
-      if (urlStr.indexOf('/api/contacts/public') !== -1 && method === 'POST' && cfg.recaptchaKey) {
+      if (urlStr.indexOf('/contacts/public') !== -1 && method === 'POST' && cfg.recaptchaKey) {
         return new Promise(function(resolve) {
           grecaptcha.ready(function() {
             grecaptcha.execute(cfg.recaptchaKey, { action: 'contact' }).then(function(token) {
@@ -1148,7 +1148,7 @@
   }
 
   // ==================== Remote SDK Config ====================
-  // Fetches per-tenant config from /api/sdk/config?tenant=<slug>. Cached in
+  // Fetches per-tenant config from /sdk/config?tenant=<slug>. Cached in
   // localStorage with a short TTL so config changes reach the field within
   // minutes without hammering the backend. Falls back to cached or defaults
   // on network failure — never blocks boot.
@@ -1240,13 +1240,13 @@
     if (cached) {
       applyRemoteConfig(cached);
       // Still refresh in the background so the next page has the latest.
-      fetchWithTimeout(apiBase + '/api/sdk/config?tenant=' + encodeURIComponent(tenantKey), { method: 'GET' }, 5000)
+      fetchWithTimeout(apiBase + '/sdk/config?tenant=' + encodeURIComponent(tenantKey), { method: 'GET' }, 5000)
         .then(function(r) { return r.ok ? r.json() : null; })
         .then(function(body) { if (body && body.data) writeCachedConfig(body.data); })
         .catch(function() { /* ignore */ });
       return Promise.resolve(cached);
     }
-    return fetchWithTimeout(apiBase + '/api/sdk/config?tenant=' + encodeURIComponent(tenantKey), { method: 'GET' }, 5000)
+    return fetchWithTimeout(apiBase + '/sdk/config?tenant=' + encodeURIComponent(tenantKey), { method: 'GET' }, 5000)
       .then(function(r) { return r.ok ? r.json() : null; })
       .then(function(body) {
         if (body && body.data) {
@@ -1413,7 +1413,7 @@
       page_url: window.location.href,
       timestamp: new Date().toISOString()
     };
-    var endpoint = (_remoteConfig && _remoteConfig.endpoints && _remoteConfig.endpoints.events) || '/api/events';
+    var endpoint = (_remoteConfig && _remoteConfig.endpoints && _remoteConfig.endpoints.events) || '/events';
     return fetchWithTimeout(apiBase + endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1427,7 +1427,7 @@
   }
 
   // ==================== submitLead — ergonomic lead POST ====================
-  // Wraps POST /api/leads so the client code only has to pass form fields.
+  // Wraps POST /leads so the client code only has to pass form fields.
   // The SDK attaches funnel_id, session/visit IDs, UTMs, click IDs, GA IDs,
   // and trusted_form_url automatically.
   //
@@ -1576,7 +1576,7 @@
       });
     }
 
-    return fetchWithTimeout(apiBase + '/api/leads', {
+    return fetchWithTimeout(apiBase + '/leads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -1831,10 +1831,10 @@
     getRemoteConfig: function() { return _remoteConfig; },
     reloadRemoteConfig: loadRemoteConfig,
 
-    // Track a custom event → POST /api/events
+    // Track a custom event → POST /events
     track: scaleTrack,
 
-    // Ergonomic lead posting — wraps POST /api/leads so client code only
+    // Ergonomic lead posting — wraps POST /leads so client code only
     // passes form fields. See the `submitLead` implementation above.
     submitLead: submitLead,
 
@@ -1865,15 +1865,15 @@
 
       if (cfg.apiBaseUrl && tenantKey) {
         pending.push(
-          fetchWithTimeout(cfg.apiBaseUrl + '/api/sdk/config?tenant=' + encodeURIComponent(tenantKey), { method: 'GET' }, 5000)
-            .then(function(r) { push('GET /api/sdk/config', r.ok, 'HTTP ' + r.status); })
-            .catch(function(e) { push('GET /api/sdk/config', false, String(e && e.message || e)); })
+          fetchWithTimeout(cfg.apiBaseUrl + '/sdk/config?tenant=' + encodeURIComponent(tenantKey), { method: 'GET' }, 5000)
+            .then(function(r) { push('GET /sdk/config', r.ok, 'HTTP ' + r.status); })
+            .catch(function(e) { push('GET /sdk/config', false, String(e && e.message || e)); })
         );
       }
 
       if (cfg.apiBaseUrl && cfg.funnelSlug) {
         pending.push(
-          fetchWithTimeout(cfg.apiBaseUrl + '/api/funnels/public/' + encodeURIComponent(cfg.funnelSlug) + '/business-hours', { method: 'GET' }, 5000)
+          fetchWithTimeout(cfg.apiBaseUrl + '/funnels/public/' + encodeURIComponent(cfg.funnelSlug) + '/business-hours', { method: 'GET' }, 5000)
             .then(function(r) { push('GET /business-hours', r.ok, 'HTTP ' + r.status); })
             .catch(function(e) { push('GET /business-hours', false, String(e && e.message || e)); })
         );

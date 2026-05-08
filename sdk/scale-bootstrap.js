@@ -1,4 +1,4 @@
-// Scale Digital - Bootstrap Loader v2.6.0
+// Scale Digital - Bootstrap Loader v2.6.1
 // One-tag install: fetches per-tenant config from the backend, sets
 // window.SCALE_CONFIG, then loads scale-analytics.js and scale-sdk-v2.js.
 //
@@ -16,7 +16,7 @@
 //           defer></script>
 //
 // Requires the backend to implement:
-//   GET {api}/api/sdk/tenant-bootstrap?slug={tenant}[&funnel={funnel}]
+//   GET {api}/sdk/tenant-bootstrap?slug={tenant}[&funnel={funnel}]
 //     → { data: { funnelId, funnelSlug, apiBaseUrl, tenantKey,
 //                  gtmId?, ga4MeasurementId?, recaptchaKey?,
 //                  features?, siteId?, vertical? } }
@@ -48,7 +48,7 @@
 
   var cdnBase = self.src.replace(/\/scale-bootstrap(\.min)?\.js.*$/, '');
 
-  var bootstrapUrl = apiBase + '/api/sdk/tenant-bootstrap?slug=' + encodeURIComponent(tenant);
+  var bootstrapUrl = apiBase + '/sdk/tenant-bootstrap?slug=' + encodeURIComponent(tenant);
   if (funnel) bootstrapUrl += '&funnel=' + encodeURIComponent(funnel);
 
   fetch(bootstrapUrl, {
