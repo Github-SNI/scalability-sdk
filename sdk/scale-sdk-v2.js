@@ -120,6 +120,57 @@
     });
   }
 
+  // Retry transient fetch failures (network, 5xx). 4xx errors are NOT
+  // retried — they indicate a bug or rejection that won't fix itself.
+  // Linear backoff (500ms, 1000ms, ...) keeps total wait bounded.
+  function fetchWithRetry(url, options, opts) {
+    opts = opts || {};
+    var attempts = opts.attempts || 2;
+    var backoff = opts.backoff || 500;
+    var timeout = opts.timeout || FETCH_TIMEOUT;
+    return new Promise(function(resolve, reject) {
+      var tries = 0;
+      function attempt() {
+        tries++;
+        fetchWithTimeout(url, options, timeout).then(function(res) {
+          if (!res.ok && res.status >= 500 && tries < attempts) {
+            log('Retrying after ' + res.status, url);
+            setTimeout(attempt, backoff * tries);
+            return;
+          }
+          resolve(res);
+        }).catch(function(err) {
+          if (tries < attempts) {
+            log('Retrying after error: ' + err.message, url);
+            setTimeout(attempt, backoff * tries);
+            return;
+          }
+          reject(err);
+        });
+      }
+      attempt();
+    });
+  }
+
+  // ==================== Safe Storage (FB in-app browser fallback) ====================
+  // Some embedded browsers (Facebook in-app on Android, etc.) restrict
+  // localStorage but allow sessionStorage. Wrap reads/writes so we
+  // gracefully degrade instead of losing the session_id entirely.
+  function safeStorageGet(key) {
+    try { var v = localStorage.getItem(key); if (v != null) return v; } catch (e) {}
+    try { return sessionStorage.getItem(key); } catch (e) {}
+    return null;
+  }
+  function safeStorageSet(key, value) {
+    try { localStorage.setItem(key, value); return true; } catch (e) {}
+    try { sessionStorage.setItem(key, value); return true; } catch (e) {}
+    return false;
+  }
+  function safeStorageRemove(key) {
+    try { localStorage.removeItem(key); } catch (e) {}
+    try { sessionStorage.removeItem(key); } catch (e) {}
+  }
+
   // ==================== DOM Ready Helper ====================
   function onReady(fn) {
     if (document.readyState === 'loading') {
@@ -366,7 +417,7 @@
 
   function getSession() {
     try {
-      var stored = localStorage.getItem(SESSION_KEY);
+      var stored = safeStorageGet(SESSION_KEY);
       if (stored) {
         var parsed = JSON.parse(stored);
         if (parsed.createdAt && (Date.now() - parsed.createdAt) < SESSION_MAX_AGE) {
@@ -393,7 +444,7 @@
 
   function saveSession(session) {
     try {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      safeStorageSet(SESSION_KEY, JSON.stringify(session));
     } catch (e) {
       log('Session save error:', e);
     }
@@ -407,7 +458,7 @@
   }
 
   function clearSession() {
-    try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+    safeStorageRemove(SESSION_KEY);
   }
 
   function getOrCreateSession() {
@@ -436,6 +487,9 @@
   // ==================== Visit Registration Module ====================
   var _visitState = {
     registered: false,
+    posted: false,             // true once we've received any response (success OR resolvable failure)
+    pendingPayload: null,      // payload kept for sendBeacon fallback on pagehide
+    pendingUrl: null,
     startTime: Date.now(),
     pageViews: 1,
     heartbeatInterval: null
@@ -483,12 +537,22 @@
       visitUrl += '?skip_bh=true';
     }
 
-    fetchWithTimeout(visitUrl, {
+    // Stash payload + URL on _visitState so pagehide can fire sendBeacon
+    // as a last-ditch effort if the fetch hasn't completed by the time
+    // the user navigates away (common on FB in-app browsers).
+    _visitState.pendingPayload = payload;
+    _visitState.pendingUrl = visitUrl;
+
+    fetchWithRetry(visitUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }, FETCH_TIMEOUT)
+      body: JSON.stringify(payload),
+      // keepalive lets the request finish even if the document is
+      // unloading — critical for FB in-app browsers + fast clickers.
+      keepalive: true
+    }, { attempts: 2, backoff: 500 })
     .then(function(res) {
+      _visitState.posted = true;
       if (!res.ok) throw new Error('Visit tracking failed: ' + res.status);
       return res.json();
     })
@@ -538,6 +602,42 @@
     })
     .catch(function(error) {
       log('Visit registration error:', error);
+      // Surface the failure so the host page (e.g. Astro fetch
+      // interceptor) can stop waiting and proceed instead of holding
+      // its 10s timeout. Detail includes the payload so a listener
+      // can decide to retry via beacon or pass-through.
+      window.dispatchEvent(new CustomEvent('scale:visit-failed', {
+        detail: {
+          error: error && error.message ? error.message : String(error),
+          sessionId: session.sessionId,
+          payload: payload,
+        }
+      }));
+    });
+
+    // Last-ditch: if the user navigates away before the visit fetch
+    // resolves, fire navigator.sendBeacon as a fire-and-forget POST.
+    // Beacons survive page unload, regular fetch (even with keepalive)
+    // can still be cancelled mid-flight by some in-app browsers.
+    var beaconFired = false;
+    var beaconOnHide = function() {
+      if (beaconFired) return;
+      if (_visitState.posted) return;
+      if (!navigator.sendBeacon) return;
+      try {
+        var blob = new Blob([JSON.stringify(_visitState.pendingPayload || payload)], {
+          type: 'application/json'
+        });
+        navigator.sendBeacon(_visitState.pendingUrl || visitUrl, blob);
+        beaconFired = true;
+        log('Visit sendBeacon fallback fired on pagehide');
+      } catch (e) {
+        log('Visit sendBeacon error:', e);
+      }
+    };
+    window.addEventListener('pagehide', beaconOnHide, { once: false });
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'hidden') beaconOnHide();
     });
 
     // Heartbeat: update activity every 30s while page is visible
