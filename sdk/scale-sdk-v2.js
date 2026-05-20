@@ -41,7 +41,14 @@
   // SCALE_CONFIG values take precedence.
   function __ensureSDKConfig(cb) {
     var prior = window.SCALE_CONFIG;
-    if (prior && (prior.funnelId || prior.funnelSlug)) return cb();
+    // Only skip bootstrap if funnelId is already populated — the SDK
+    // uses funnelId (not funnelSlug) to register visits, post leads,
+    // etc. Allowing funnelSlug to short-circuit caused a race where
+    // [...slug].astro's inline <script> set funnelSlug, scale-sdk-v2
+    // skipped its bootstrap, and ran init() before scale-analytics's
+    // async bootstrap response landed — leaving cfg.funnelId
+    // undefined and silently disabling visit tracking.
+    if (prior && prior.funnelId) return cb();
     var script = document.currentScript;
     if (!script) {
       var all = document.getElementsByTagName('script');

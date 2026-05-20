@@ -27,7 +27,10 @@
   // SCALE_CONFIG values take precedence.
   function __ensureAnalyticsConfig(cb) {
     var prior = window.SCALE_CONFIG;
-    if (prior && (prior.funnelId || prior.funnelSlug)) return cb();
+    // Only skip bootstrap if funnelId is already populated — see the
+    // matching note in scale-sdk-v2's __ensureSDKConfig. funnelSlug
+    // alone is not enough: downstream code keys on funnelId.
+    if (prior && prior.funnelId) return cb();
     var script = document.currentScript;
     if (!script) {
       var all = document.getElementsByTagName('script');
