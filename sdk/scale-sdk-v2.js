@@ -666,11 +666,13 @@
       if (!_visitState.registered) return;
       var session = getSession();
       if (!session) return;
-      var payload = JSON.stringify({
+      var beaconBody = {
         exit_page: window.location.href,
         time_on_site: Math.round((Date.now() - _visitState.startTime) / 1000),
         pages_visited: _visitState.pageViews
-      });
+      };
+      if (_engState.scrollMaxPct > 0) beaconBody.scroll_depth = _engState.scrollMaxPct;
+      var payload = JSON.stringify(beaconBody);
       if (navigator.sendBeacon) {
         var blob = new Blob([payload], { type: 'application/json' });
         navigator.sendBeacon(apiBase + '/api/visits/' + session.sessionId, blob);
@@ -713,6 +715,7 @@
       time_on_site: Math.round((Date.now() - _visitState.startTime) / 1000),
       pages_visited: _visitState.pageViews
     };
+    if (_engState.scrollMaxPct > 0) payload.scroll_depth = _engState.scrollMaxPct;
 
     fetchWithTimeout(apiBase + '/api/visits/' + session.sessionId, {
       method: 'PATCH',
@@ -1790,6 +1793,205 @@
     });
   }
 
+
+  // ==================== Engagement Module ====================
+  // Scroll depth, visibility-aware active time, and per-content-block
+  // visibility/dwell (IntersectionObserver over [data-block-id] sections).
+  //
+  // Perf: IO is native/async; the scroll listener is passive + rAF-throttled;
+  // nothing reads layout outside rAF. Data accumulates locally and flushes as
+  // ONE cumulative 'engagement_summary' event at most every 15s, plus a final
+  // flush on page-hidden (fetch keepalive). Setup is deferred to idle time.
+  // Gate: featureEnabled('engagement') — site override or remote config
+  // tracking.engagement / tracking.track_engagement; default ON.
+  var _engState = {
+    enabled: false,
+    scrollMaxPct: 0,
+    activeMs: 0,
+    lastActiveStart: null,
+    blocks: {},            // block_id -> { type, seen, dwell_ms, max_pct, _visibleSince }
+    observer: null,
+    dirty: false,
+    lastFlushAt: 0,
+    scrollScheduled: false,
+    startTime: Date.now()
+  };
+
+  function engOnScroll() {
+    if (_engState.scrollScheduled) return;
+    _engState.scrollScheduled = true;
+    requestAnimationFrame(function() {
+      _engState.scrollScheduled = false;
+      var h = document.documentElement;
+      var total = (h.scrollHeight - window.innerHeight) || 0;
+      var pct = total > 0 ? Math.min(100, Math.round((window.scrollY / total) * 100)) : 100;
+      if (pct > _engState.scrollMaxPct) {
+        _engState.scrollMaxPct = pct;
+        _engState.dirty = true;
+      }
+    });
+  }
+
+  // Accumulate visible time up to now and restart the window.
+  function engSettleActive() {
+    if (_engState.lastActiveStart) {
+      _engState.activeMs += Date.now() - _engState.lastActiveStart;
+      _engState.lastActiveStart = document.visibilityState === 'visible' ? Date.now() : null;
+    }
+  }
+
+  // Close open per-block dwell windows (page hidden or flush).
+  function engSettleDwell() {
+    var now = Date.now();
+    for (var id in _engState.blocks) {
+      var st = _engState.blocks[id];
+      if (st._visibleSince) {
+        st.dwell_ms += now - st._visibleSince;
+        st._visibleSince = document.visibilityState === 'visible' ? now : null;
+      }
+    }
+  }
+
+  function engObserveBlocks() {
+    if (!_engState.enabled || !('IntersectionObserver' in window)) return;
+    var nodes = document.querySelectorAll('[data-block-id]');
+    if (!nodes.length) return;
+
+    if (!_engState.observer) {
+      _engState.observer = new IntersectionObserver(function(entries) {
+        var now = Date.now();
+        for (var i = 0; i < entries.length; i++) {
+          var entry = entries[i];
+          var id = entry.target.getAttribute('data-block-id');
+          var st = id && _engState.blocks[id];
+          if (!st) continue;
+          if (entry.intersectionRatio > st.max_pct) {
+            st.max_pct = entry.intersectionRatio;
+            _engState.dirty = true;
+          }
+          // "Reading" a block = at least half of it on screen.
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+            if (!st._visibleSince) st._visibleSince = now;
+            if (!st.seen) { st.seen = true; _engState.dirty = true; }
+          } else if (st._visibleSince) {
+            st.dwell_ms += now - st._visibleSince;
+            st._visibleSince = null;
+            _engState.dirty = true;
+          }
+        }
+      }, { threshold: [0, 0.5, 0.9] });
+    }
+
+    for (var j = 0; j < nodes.length; j++) {
+      var bid = nodes[j].getAttribute('data-block-id');
+      if (bid && !_engState.blocks[bid]) {
+        _engState.blocks[bid] = {
+          type: nodes[j].getAttribute('data-block-type') || null,
+          seen: false,
+          dwell_ms: 0,
+          max_pct: 0,
+          _visibleSince: null
+        };
+        _engState.observer.observe(nodes[j]);
+      }
+    }
+  }
+
+  function engFlush(isFinal) {
+    if (!_engState.enabled) return;
+    // Honor a late remote-config disable.
+    if (!featureEnabled('engagement', featureEnabled('track_engagement', true))) return;
+    var session = getSession();
+    var funnelId = cfg.funnelId || (_remoteConfig && _remoteConfig.funnel_id);
+    if (!session || !funnelId) return;
+
+    var now = Date.now();
+    if (!isFinal && (now - _engState.lastFlushAt < 15000 || !_engState.dirty)) return;
+    if (isFinal && now - _engState.lastFlushAt < 5000 && !_engState.dirty) return;
+
+    engSettleDwell();
+    engSettleActive();
+
+    var blocks = [];
+    for (var id in _engState.blocks) {
+      var st = _engState.blocks[id];
+      if (st.seen || st.max_pct > 0) {
+        blocks.push({
+          id: id,
+          type: st.type,
+          seen: st.seen,
+          dwell_ms: Math.round(st.dwell_ms),
+          max_pct: Math.round(st.max_pct * 100)
+        });
+      }
+    }
+    // Nothing meaningful yet — skip the request entirely.
+    if (!blocks.length && _engState.scrollMaxPct === 0 && _engState.activeMs < 1000) return;
+
+    _engState.lastFlushAt = now;
+    _engState.dirty = false;
+
+    var body = {
+      funnel_id: funnelId,
+      session_id: session.sessionId,
+      event_name: 'engagement_summary',
+      event_data: {
+        blocks: blocks,
+        scroll_depth_max: _engState.scrollMaxPct,
+        active_ms: Math.round(_engState.activeMs),
+        since_load_ms: now - _engState.startTime,
+        final: !!isFinal,
+        page_url: window.location.href
+      },
+      page_url: window.location.href,
+      timestamp: new Date().toISOString()
+    };
+    var endpoint = (_remoteConfig && _remoteConfig.endpoints && _remoteConfig.endpoints.events) || '/api/events';
+    try {
+      // keepalive so the final flush survives page teardown.
+      fetch(apiBase + endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        keepalive: true
+      }).catch(function(err) { log('Engagement flush failed', err); });
+    } catch (e) {
+      log('Engagement flush error', e);
+    }
+    log('Engagement flushed', { blocks: blocks.length, scroll: _engState.scrollMaxPct, active_ms: _engState.activeMs, final: !!isFinal });
+  }
+
+  function initEngagement() {
+    if (!featureEnabled('engagement', featureEnabled('track_engagement', true))) {
+      log('Engagement tracking disabled by config');
+      return;
+    }
+    _engState.enabled = true;
+    _engState.lastActiveStart = document.visibilityState === 'visible' ? Date.now() : null;
+
+    window.addEventListener('scroll', engOnScroll, { passive: true });
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'hidden') {
+        engSettleActive();
+        _engState.lastActiveStart = null;
+        engSettleDwell();
+        engFlush(true);
+      } else {
+        _engState.lastActiveStart = Date.now();
+      }
+    });
+    window.addEventListener('pagehide', function() { engFlush(true); });
+
+    engObserveBlocks();
+    // Late-hydrated / client-rendered blocks get a second scan.
+    setTimeout(engObserveBlocks, 3000);
+    // Mid-session snapshots so long sessions survive a dead final beacon.
+    setTimeout(function() { engFlush(false); }, 30000);
+    setTimeout(function() { engFlush(false); }, 120000);
+    engOnScroll(); // record initial depth (anchored loads)
+    log('Engagement tracking active');
+  }
+
   // ==================== Initialization ====================
   function init() {
     log('Initializing SDK v2', {
@@ -1825,13 +2027,17 @@
     initPhoneFetcher();
     initTrustedForm();
 
+    // Engagement (scroll/active/blocks) — defer to idle, never competes
+    // with page render.
+    (window.requestIdleCallback || function(fn) { setTimeout(fn, 200); })(initEngagement);
+
     // Bind any <form data-scale-form="lead"> present on the page. Also
     // re-scan when the DOM mutates so dynamically-injected forms (SPAs,
     // Elementor live editor, etc.) get picked up without manual wiring.
     onReady(function() { bindScaleForms(document); });
     if (typeof MutationObserver === 'function') {
       try {
-        new MutationObserver(function() { bindScaleForms(document); })
+        new MutationObserver(function() { bindScaleForms(document); engObserveBlocks(); })
           .observe(document.documentElement, { childList: true, subtree: true });
       } catch (e) { /* ignore — not worth blocking init */ }
     }
@@ -1868,6 +2074,19 @@
     Cookie: {
       get: getCookieData,
       set: updateCookie
+    },
+
+    // Engagement (scroll depth / active time / per-block visibility)
+    Engagement: {
+      getState: function() {
+        return {
+          scroll_depth_max: _engState.scrollMaxPct,
+          active_ms: _engState.activeMs,
+          blocks: _engState.blocks,
+          enabled: _engState.enabled
+        };
+      },
+      flush: function() { engFlush(false); }
     },
 
     // Visits
