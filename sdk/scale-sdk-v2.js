@@ -241,15 +241,52 @@
     return new URLSearchParams(window.location.search);
   }
 
+  // ==================== Legacy URL Adapter (TEMPORARY) ====================
+  // Some sites were migrated from the legacy stack but their live ad
+  // campaigns still use legacy promotion URLs that can't be edited in
+  // Google Ads without losing campaign history:
+  //   ?id=847570&k={keyword}&utm_source=Google&utm_campaign=LIC&...
+  // In the legacy model `id` (alias `source`) is the source id; in SAAS the
+  // campaign identifier is utm_campaign (matched against
+  // tenant_campaigns.name — the legacy sources are pre-created as tenant
+  // campaigns and linked to the funnel). When a legacy URL is detected we
+  // remap:
+  //   id|source             → utm_campaign
+  //   original utm_campaign → params.legacy_utm_campaign (label, kept for audit)
+  //   k                     → params.keyword + utm_term fallback
+  //   utm_source            → lowercased ("Google" → "google")
+  //
+  // Detection is by URL shape, NOT hostname: a *numeric* `id`/`source` param
+  // is the distinctive marker of a legacy URL. SAAS-native URLs never carry
+  // a bare numeric id/source (they use utm_campaign + ValueTrack params like
+  // campaignid/adgroupid/gad_source), so they pass through untouched on any
+  // domain — including Vercel preview/branch URLs we can't enumerate. The
+  // numeric guard also stops a generic `?id=slug` from hijacking utm_campaign.
+  // The same remap exists server-side in SAAS/backend visits.controller.ts as
+  // a safety net for cached SDKs. Remove both once these sites run
+  // SAAS-native campaign URLs only.
+  function getLegacySourceId() {
+    var params = getURLParams();
+    var legacy = params.get('id') || params.get('source');
+    return (legacy && /^\d+$/.test(legacy)) ? legacy : undefined;
+  }
+
   function getUTMParams() {
     var params = getURLParams();
-    return {
+    var utm = {
       utm_source: params.get('utm_source') || undefined,
       utm_medium: params.get('utm_medium') || undefined,
       utm_campaign: params.get('utm_campaign') || undefined,
       utm_term: params.get('utm_term') || undefined,
       utm_content: params.get('utm_content') || undefined
     };
+    var legacySource = getLegacySourceId();
+    if (legacySource) {
+      utm.utm_campaign = legacySource;
+      if (utm.utm_source) utm.utm_source = utm.utm_source.toLowerCase();
+      if (!utm.utm_term && params.get('k')) utm.utm_term = params.get('k');
+    }
+    return utm;
   }
 
   function getTrackingParams() {
@@ -260,6 +297,15 @@
       var value = params.get(key);
       if (value) result[key] = value;
     });
+    var legacySource = getLegacySourceId();
+    if (legacySource) {
+      var originalCampaign = params.get('utm_campaign');
+      if (originalCampaign && originalCampaign !== legacySource) {
+        result.legacy_utm_campaign = originalCampaign;
+      }
+      var legacyKeyword = params.get('k');
+      if (legacyKeyword && !result.keyword) result.keyword = legacyKeyword;
+    }
     return Object.keys(result).length > 0 ? result : undefined;
   }
 
