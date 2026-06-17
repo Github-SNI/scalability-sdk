@@ -920,19 +920,25 @@
   var _phoneDisplayInitialized = false;
 
   function updateAllPhoneLinks(cleanPhone, formattedPhone) {
-    // Update ALL tel: links
+    // IDEMPOTENT: only write when the value actually changes. Setting
+    // textContent always replaces the text node (a childList mutation), so the
+    // re-apply MutationObserver would re-fire on a no-op write and spin forever
+    // (the formatted number matches the phone regex below). The guards stop
+    // that feedback loop — without them the page hangs on mobile.
+    var href = 'tel:+1' + cleanPhone;
     document.querySelectorAll('a[href^="tel:"]').forEach(function(link) {
-      link.href = 'tel:+1' + cleanPhone;
+      if (link.getAttribute('href') !== href) link.href = href;
       var text = (link.textContent || '').trim();
-      if (!text || /^[\d\s\(\)\-\+\.]+$/.test(text) || text === 'Call Now' || text === 'Call Us') {
+      if (text !== formattedPhone &&
+          (!text || /^[\d\s\(\)\-\+\.]+$/.test(text) || text === 'Call Now' || text === 'Call Us')) {
         link.textContent = formattedPhone;
       }
     });
 
     // Update #phone-link (call button) — href may be empty on first load
     var phoneLink = document.getElementById('phone-link');
-    if (phoneLink) {
-      phoneLink.href = 'tel:+1' + cleanPhone;
+    if (phoneLink && phoneLink.getAttribute('href') !== href) {
+      phoneLink.href = href;
     }
   }
 
