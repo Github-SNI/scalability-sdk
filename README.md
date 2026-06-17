@@ -75,12 +75,12 @@ For clients in regulated industries or with strict change-management policies, p
   };
 </script>
 <script
-  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.9.0/sdk/scale-analytics.js"
+  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.9.1/sdk/scale-analytics.js"
   integrity="sha384-8/o8I+ug07HGkakvMX8FJeHwum0ZIYaNaFGAhVgTbWeqKH7cYrQ0ZHD9bHM5Qayh"
   crossorigin="anonymous"></script>
 <script
-  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.9.0/sdk/scale-sdk-v2.js"
-  integrity="sha384-/qEQIpAyt7FEh7ngkoq5DqAZft+/is/LJokTk6OKtpzra+GbNGrUMw5vzwhZp7uM"
+  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.9.1/sdk/scale-sdk-v2.js"
+  integrity="sha384-qDOJhdRL3SAHgcK0ZKfyxNJso5FJQpvv9EoQiVqsD0T+YNz+443q2eDo+zzcsbTZ"
   crossorigin="anonymous"
   defer></script>
 ```
@@ -91,12 +91,12 @@ Minified + SRI variant:
 <!-- CDN-MIN-SNIPPET:START -->
 ```html
 <script
-  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.9.0/sdk/scale-analytics.min.js"
+  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.9.1/sdk/scale-analytics.min.js"
   integrity="sha384-+CcaAAzuMW4l5FSuOPeV6a8U8JyTiIYU3ASohLP1hf49I22n9kW54WxPRFlErqqy"
   crossorigin="anonymous"></script>
 <script
-  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.9.0/sdk/scale-sdk-v2.min.js"
-  integrity="sha384-4WaGLzSuoYVdYxs6Y28l0i9Jj/bUxnz1w2GLWb3axFQYbaist9zsOJRm29o7lb4K"
+  src="https://cdn.jsdelivr.net/gh/Github-SNI/scalability-sdk@v2.9.1/sdk/scale-sdk-v2.min.js"
+  integrity="sha384-/P0d1sTxBUH5vm2ZqKkMBkVAqenARJvAuJdBF7jojq7oAkif+Ach81RBppy5aAh8"
   crossorigin="anonymous"
   defer></script>
 ```
@@ -142,12 +142,12 @@ https://github.com/Github-SNI/scalability-sdk/releases/latest
 
 ### Specific version
 ```
-https://github.com/Github-SNI/scalability-sdk/releases/download/v2.9.0/Scalability-SDK-v2.9.0.zip
+https://github.com/Github-SNI/scalability-sdk/releases/download/v2.9.1/Scalability-SDK-v2.9.1.zip
 ```
 
 ### Individual file
 ```
-https://github.com/Github-SNI/scalability-sdk/releases/download/v2.9.0/scale-sdk-v2.js
+https://github.com/Github-SNI/scalability-sdk/releases/download/v2.9.1/scale-sdk-v2.js
 ```
 
 ## Publishing a new release
