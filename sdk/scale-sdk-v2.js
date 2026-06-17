@@ -860,11 +860,13 @@
 
     log('Fetching phone number:', payload);
 
-    return fetchWithTimeout(apiBase + '/api/calls/phone/assign', {
+    // Retry transient 5xx/network failures (same as the visit POST) — a single
+    // hiccup on the assign endpoint shouldn't leave the visitor with no number.
+    return fetchWithRetry(apiBase + '/api/calls/phone/assign', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
-    }, FETCH_TIMEOUT)
+    }, { attempts: 2, backoff: 500 })
     .then(function(res) {
       if (!res.ok) throw new Error('Phone fetch failed: ' + res.status);
       return res.json();
@@ -2083,10 +2085,35 @@
     onReady(function() { bindScaleForms(document); });
     if (typeof MutationObserver === 'function') {
       try {
-        new MutationObserver(function() { bindScaleForms(document); engObserveBlocks(); })
-          .observe(document.documentElement, { childList: true, subtree: true });
+        new MutationObserver(function() {
+          bindScaleForms(document);
+          engObserveBlocks();
+          // Re-apply the tracking number to tel: links / phone elements that
+          // mounted AFTER the first paint (SSR hydration, sticky CTAs, modals).
+          // setupPhoneDisplay() runs once, so without this a late-mounted call
+          // button keeps its placeholder href and the call never fires.
+          // Lightweight (href + text only — no event re-dispatch).
+          if (_phoneState && _phoneState.phoneNumber) {
+            var cpObs = _phoneState.phoneNumber.replace(/\D/g, '');
+            if (cpObs.length === 11 && cpObs.charAt(0) === '1') cpObs = cpObs.slice(1);
+            updateAllPhoneLinks(cpObs, _phoneState.formattedPhone);
+          }
+        }).observe(document.documentElement, { childList: true, subtree: true });
       } catch (e) { /* ignore — not worth blocking init */ }
     }
+
+    // Belt-and-suspenders: fix the tel: href at CLICK time — the last possible
+    // moment before the call fires. Covers the race where a button is clicked
+    // the instant it mounts, before the observer re-applies the number. Capture
+    // phase so it runs before the browser follows the tel: link.
+    document.addEventListener('click', function(e) {
+      var tgt = e.target;
+      var link = (tgt && tgt.closest) ? tgt.closest('a[href^="tel:"]') : null;
+      if (!link || !_phoneState || !_phoneState.phoneNumber) return;
+      var cpClk = _phoneState.phoneNumber.replace(/\D/g, '');
+      if (cpClk.length === 11 && cpClk.charAt(0) === '1') cpClk = cpClk.slice(1);
+      link.href = 'tel:+1' + cpClk;
+    }, true);
 
     log('SDK v2 initialized');
   }
