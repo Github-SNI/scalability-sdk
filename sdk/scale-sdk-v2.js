@@ -2108,17 +2108,44 @@
       } catch (e) { /* ignore — not worth blocking init */ }
     }
 
-    // Belt-and-suspenders: fix the tel: href at CLICK time — the last possible
-    // moment before the call fires. Covers the race where a button is clicked
-    // the instant it mounts, before the observer re-applies the number. Capture
-    // phase so it runs before the browser follows the tel: link.
+    // SINGLE OWNER of click-to-call dialing — fix/force the tel: dial at CLICK
+    // time, the last possible moment before the call fires. This replaces the
+    // per-funnel content_block / funnel_step phone scripts (bindForcedDial /
+    // initializePhoneUI), which used to do this and raced each other. It covers:
+    //   1. A button clicked the instant it mounts, before the observer re-applies
+    //      the DNI number (the original race).
+    //   2. An SSR button that ships with an EMPTY or "tel:" href and no DNI number
+    //      yet (cold load / assignment in flight) — keep whatever valid `tel:`
+    //      fallback the markup shipped so the tap is NEVER dead. Matching by
+    //      `#phone-link` / `[data-call-link]` catches the empty-href button that
+    //      `a[href^="tel:"]` alone would miss.
+    //   3. iOS Safari refusing to re-fire a native <a href="tel:"> on the SECOND
+    //      tap because the href is unchanged — force a programmatic navigation
+    //      every time. Synchronous so it stays inside the user gesture (iOS blocks
+    //      deferred tel: navigation).
+    // Capture phase so it runs before the browser follows the tel: link.
     document.addEventListener('click', function(e) {
       var tgt = e.target;
-      var link = (tgt && tgt.closest) ? tgt.closest('a[href^="tel:"]') : null;
-      if (!link || !_phoneState || !_phoneState.phoneNumber) return;
-      var cpClk = _phoneState.phoneNumber.replace(/\D/g, '');
-      if (cpClk.length === 11 && cpClk.charAt(0) === '1') cpClk = cpClk.slice(1);
-      link.href = 'tel:+1' + cpClk;
+      var link = (tgt && tgt.closest)
+        ? tgt.closest('a[href^="tel:"], #phone-link, [data-call-link]')
+        : null;
+      if (!link) return;
+      var href = '';
+      if (_phoneState && _phoneState.phoneNumber) {
+        // Prefer the live DNI tracking number.
+        var cpClk = _phoneState.phoneNumber.replace(/\D/g, '');
+        if (cpClk.length === 11 && cpClk.charAt(0) === '1') cpClk = cpClk.slice(1);
+        href = 'tel:+1' + cpClk;
+      } else {
+        // No DNI number yet: keep the valid `tel:` fallback the SSR markup shipped.
+        // Never dial an empty "tel:".
+        var cur = link.getAttribute('href') || '';
+        if (cur.indexOf('tel:') === 0 && cur !== 'tel:') href = cur;
+      }
+      if (!href) return; // nothing safe to dial — let native behavior happen
+      e.preventDefault();
+      if (link.getAttribute('href') !== href) link.setAttribute('href', href);
+      window.location.href = href; // force re-fire (covers iOS 2nd-tap)
     }, true);
 
     log('SDK v2 initialized');
