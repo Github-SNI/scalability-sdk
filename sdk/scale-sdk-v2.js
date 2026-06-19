@@ -62,7 +62,13 @@
     if (!apiBase || !tenant) return cb();
     var url = apiBase + '/api/sdk/tenant-bootstrap?slug=' + encodeURIComponent(tenant);
     if (funnel) url += '&funnel=' + encodeURIComponent(funnel);
-    fetch(url, { method: 'GET', credentials: 'include' })
+    // Never let bootstrap hold the page in a loading state: if the API is slow
+    // or blocked (e.g. an ad blocker nuking the analytics domain) a raw fetch
+    // hangs indefinitely. Abort after a short timeout and continue with the
+    // existing SCALE_CONFIG so the page settles.
+    var _ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var _bootTimer = setTimeout(function() { if (_ac) _ac.abort(); }, 4000);
+    fetch(url, { method: 'GET', credentials: 'include', signal: _ac ? _ac.signal : undefined })
       .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(body) {
         var data = (body && body.data) || {};
@@ -74,7 +80,7 @@
         window.SCALE_CONFIG = merged;
       })
       .catch(function(err) { if (console && console.error) console.error('[ScaleSDKv2] auto-bootstrap failed:', err); })
-      .then(cb);
+      .then(function() { clearTimeout(_bootTimer); cb(); });
   }
 
   function __runScaleSDKv2() {
